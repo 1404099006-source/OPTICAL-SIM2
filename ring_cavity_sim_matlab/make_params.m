@@ -208,7 +208,7 @@ end
 % ---- normalization radii on aperture plane (theoretical) ----
 P.aperture_ry_mm = 2.0;
 P.aperture_rz_mm = 2.0;
-P.e_enter_cont   = 0.25;   % 更严格的进入精调阈值
+P.e_enter_cont   = 0.45;   % 进入精调阈值（兼顾可收敛性与稳定性）
 P.Juv_step_um    = 1.0;
 P.Juv_lambda     = 1e-3;
 % ===== Loss fine (quadratic fit) =====
@@ -230,7 +230,7 @@ P.duv_fine    = 0.5;    % um per step
 % ---------- Loss model scales (set by "how sensitive" loss is) ----------
 % ---------- Loss model in ppm ----------
 % Threshold: 0.12% = 1200 ppm
-P.L_thresh_ppm = 350;
+P.L_thresh_ppm = 1200;
 
 % Best achievable loss floor (ppm) near theoretical optimum
 P.L_min = 200;            % ppm (你可以按实际希望的最好水平改，比如 100~300)
