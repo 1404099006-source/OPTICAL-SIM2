@@ -132,7 +132,7 @@ P.L_min  = 200;      % ppm best floor
 
 % Sensitivity (reasonable defaults)
 P.Gp_ppm = 2500;     % position misalignment penalty weight
-P.Ga_ppm = 1200;     % angle misalignment penalty weight (smaller than pos)
+P.Ga_ppm = 320;     % angle misalignment penalty weight (smaller than pos)
 P.Gc_ppm = 200;      % mild coupling
 
 % Angle normalization reference (rad)
@@ -223,7 +223,7 @@ P.duv_fine    = 0.5;    % um per step
 % ---------- Loss model scales (set by "how sensitive" loss is) ----------
 % ---------- Loss model in ppm ----------
 % Threshold: 0.12% = 1200 ppm
-P.L_thresh_ppm = 1200;
+P.L_thresh_ppm = 320;
 
 % Best achievable loss floor (ppm) near theoretical optimum
 P.L_min = 200;            % ppm (你可以按实际希望的最好水平改，比如 100~300)
