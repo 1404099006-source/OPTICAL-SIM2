@@ -65,7 +65,8 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
         Dc_target(3) = +P.c_z * Fz;
 
         % moment-driven tilt equilibrium (Scheme A)
-        th_eq = [-P.c_th * Mx; -P.c_th * My];
+        % Use restoring-moment direction directly; wrong sign here will diverge tilt.
+        th_eq = [P.c_th * Mx; P.c_th * My];
 
         % optional damping toward equilibrium to avoid chattering
         theta_damp = min(max(P.theta_damp, 0.0), 1.0);
