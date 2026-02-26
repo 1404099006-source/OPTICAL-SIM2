@@ -14,8 +14,9 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     % ---------------------------
     if ~isfield(P,'alpha_def'); P.alpha_def = 0.25; end
     if ~isfield(P,'c_z');       P.c_z = 0.0; end
-    if ~isfield(P,'c_th');      P.c_th = 0.0; end
-    if ~isfield(P,'enable_leveling'); P.enable_leveling = false; end
+    if ~isfield(P,'c_th');         P.c_th = 0.0; end
+    if ~isfield(P,'theta_damp');   P.theta_damp = 0.0; end
+    if ~isfield(P,'dtheta_max');   P.dtheta_max = inf; end
 
     % ---------------------------
     % 1) Apply robot command to nominal pose xr (in cavity {C})
@@ -45,7 +46,7 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     % ---------------------------
     % 3) Contact result at temporary pose
     % ---------------------------
-    [Fz, Mx, My, Keff_c, g_geo_min, g_signed_min] = force_model(Xtmp, P);
+    [Fz, Mx, My, Keff_c, ~, ~] = force_model(Xtmp, P);
 
     % ---------------------------
     % 4) Seating flag
@@ -55,43 +56,36 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     end
 
     % ---------------------------
-    % 5) Force-induced deformation (z + tilt relaxation)
+    % 5) Force-induced deformation (z + tilt from contact moments)
     % ---------------------------
     Dc_target = Xtrue.Dc;
 
     if state.seated && (Fz > 0)
-        % axial compliance: under positive contact force, z tends to "move further into contact".
-        % With your current force_model definition (w=max(-g,0)), you have been running z-up
-        % convention successfully, so keep the same sign you are currently using:
+        % axial compliance under contact force
         Dc_target(3) = +P.c_z * Fz;
 
-        % tilt relaxation by restoring moments
-        Dc_target(4) = -P.c_th * Mx;
-        Dc_target(5) = -P.c_th * My;
+        % moment-driven tilt equilibrium (Scheme A)
+        th_eq = [-P.c_th * Mx; -P.c_th * My];
+
+        % optional damping toward equilibrium to avoid chattering
+        theta_damp = min(max(P.theta_damp, 0.0), 1.0);
+        th_prev = Xtrue.Dc(4:5);
+        th_target = (1-theta_damp) * th_eq + theta_damp * th_prev;
+
+        % per-step angle increment cap for numerical stability
+        dth = th_target - th_prev;
+        dth = max(min(dth, P.dtheta_max), -P.dtheta_max);
+        Dc_target(4:5) = th_prev + dth;
     else
         Dc_target(3) = 0;
-        Dc_target(4) = Xtrue.Dc(4);
-        Dc_target(5) = Xtrue.Dc(5);
+        Dc_target(4:5) = Xtrue.Dc(4:5);
     end
 
     alpha = min(max(P.alpha_def, 0.0), 1.0);
     Xtrue.Dc(3:5) = (1-alpha)*Xtrue.Dc(3:5) + alpha*Dc_target(3:5);
 
     % ---------------------------
-    % 6) Optional heuristic leveling (if you keep it)
-    % ---------------------------
-    if isfield(P,"enable_leveling") && P.enable_leveling
-        Xtmp2 = Xtrue.xr + Xtrue.Dc;
-        [Fz2, ~, ~, ~, ~, ~] = force_model(Xtmp2, P);
-
-        th_old = Xtmp2(4:5);
-        th_new = theta_level_update(th_old, Fz2, state.seated, P);
-
-        Xtrue.Dc(4:5) = th_new - Xtrue.xr(4:5);
-    end
-
-    % ---------------------------
-    % 7) Drift (optional)
+    % 6) Drift (optional)
     % ---------------------------
     Keff = Keff_c;
     if exist('contact_drift_update','file') == 2
@@ -99,17 +93,17 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     end
 
     % ---------------------------
-    % 8) Final true pose
+    % 7) Final true pose
     % ---------------------------
     Xtrue.x = Xtrue.xr + Xtrue.Dc;
 
     % ---------------------------
-    % 9) Recompute contact at final pose for consistent outputs
+    % 8) Recompute contact at final pose for consistent outputs
     % ---------------------------
     [Fz3, Mx3, My3, Keff3, g_geo3, g_signed3] = force_model(Xtrue.x, P);
 
     % ---------------------------
-    % 10) Update state
+    % 9) Update state
     % ---------------------------
     state.F_prev = Fz3;
     state.Keff   = Keff3;

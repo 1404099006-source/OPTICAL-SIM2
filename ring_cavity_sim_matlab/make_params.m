@@ -1,4 +1,3 @@
-
 function P = make_params()
 %MAKE_PARAMS All simulation parameters in one place.
 
@@ -147,18 +146,11 @@ P.ang_ref_rad = deg2rad(0.02);
 
 % 每个力台阶的fine预算（迭代次数）
 P.fine_iter_per_level = 20;   % 每级精调迭代数（一次迭代≈5次拟合）
-% ---------- Ball-joint self-leveling (tilt -> 0 under contact force) ----------
-P.enable_leveling = true;
-
-% only active when Fz > F_touch (already defined)
-P.rho_theta0 = 0.50;   % max per-step leveling rate (0~1)
-P.beta_theta = 0.80;   % how fast leveling rate increases with force (1/N scale)
-
-% optional: limit per-step angle change for numerical stability
-P.dtheta_max = deg2rad(0.02);  % rad/step, cap the amount of leveling per step
-
-% optional: tiny residual jitter after seated (models micro stick-slip)
-P.theta_jitter = deg2rad(0.0001); % rad
+% ---------- Moment-driven leveling (Scheme A) ----------
+% Angle is driven by contact moments Mx/My (in truth_update), not by time-decay-to-zero.
+P.enable_leveling = false;      % disable legacy exponential theta decay path
+P.theta_damp = 0.20;            % 0: pure moment equilibrium, 1: hold previous angle
+P.dtheta_max = deg2rad(0.02);   % rad/step, cap per-step angle increment
 
 % ---------- Theoretical optical optimum (no micro-motion) ----------
 % Use this as the "true" loss optimum. Controller doesn't know it.
@@ -209,7 +201,7 @@ end
 % ---- normalization radii on aperture plane (theoretical) ----
 P.aperture_ry_mm = 2.0;
 P.aperture_rz_mm = 2.0;
-P.e_enter_cont   = 0.3;   % 进入精调阈值（兼顾可收敛性与稳定性）
+P.e_enter_cont   = 0.45;   % 进入精调阈值（兼顾可收敛性与稳定性）
 P.Juv_step_um    = 1.0;
 P.Juv_lambda     = 1e-3;
 % ===== Loss fine (quadratic fit) =====
