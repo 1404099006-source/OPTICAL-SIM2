@@ -69,6 +69,11 @@ state.Fz     = 0;
 state.Mx     = 0;
 state.My     = 0;
 state.seated = false;
+state.Fx     = 0;
+state.Fy     = 0;
+state.Mz     = 0;
+state.Ac     = 0;
+state.Fz_meas = 0;
 
 % =============================
 % 2) Logs
@@ -87,6 +92,10 @@ log_Lfit  = nan(1, P.N);
 log_ok    = false(1, P.N);
 log_psucc = nan(1, P.N);
 log_mode  = strings(1,P.N);
+log_Fmeas = nan(1, P.N);
+log_Fx    = nan(1, P.N);
+log_Fy    = nan(1, P.N);
+log_Ac    = nan(1, P.N);
 
 % =============================
 % 3) Mode / counters
@@ -263,6 +272,10 @@ for k = 1:P.N
     log_K(k)   = state.Keff;
     log_g(k)   = state.gmin;
     if isfield(state,'g_geo'), log_ggeo(k) = state.g_geo; end
+    if isfield(state,'Fz_meas'), log_Fmeas(k) = state.Fz_meas; end
+    if isfield(state,'Fx'), log_Fx(k) = state.Fx; end
+    if isfield(state,'Fy'), log_Fy(k) = state.Fy; end
+    if isfield(state,'Ac'), log_Ac(k) = state.Ac; end
 
 end
 
@@ -313,7 +326,11 @@ ur = Xr(1,:); vr = Xr(2,:); zr = Xr(3,:);
 figure('Name','Force & Contact','Color','w');
 tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
 
-nexttile; plot(idx, log_F(idx), 'LineWidth',1.2); grid on;
+nexttile; plot(idx, log_F(idx), 'LineWidth',1.2); hold on; grid on;
+if any(isfinite(log_Fmeas(1:Kend)))
+    plot(idx, log_Fmeas(idx), '--', 'LineWidth',1.1);
+    legend({'Fz true','Fz meas'}, 'Location','best');
+end
 xlabel('step'); ylabel('Fz (N)'); title('Normal force');
 
 nexttile; plot(idx, log_K(idx), 'LineWidth',1.2); grid on;
@@ -478,6 +495,35 @@ if ~isempty(k_contact)
     xlabel('step'); ylabel('gap (\mum)');
     title('Gap transition near contact');
 end
+
+
+% ---- Figure 8: Friction & contact area ----
+figure('Name','Friction and contact area','Color','w');
+tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+
+nexttile;
+plot(idx, log_Ac(idx), 'LineWidth',1.2); grid on;
+if isfield(P,'Ro_um') && isfield(P,'Ri_um')
+    A_ring = pi * (P.Ro_um^2 - P.Ri_um^2);
+    hold on;
+    plot(idx, log_Ac(idx)/A_ring, '--', 'LineWidth',1.1);
+    legend({'A_c (um^2)','A_c/A_{ring}'}, 'Location','best');
+end
+xlabel('step'); ylabel('Area'); title('Contact area evolution');
+
+nexttile;
+plot(idx, log_Fx(idx), 'LineWidth',1.2); hold on; grid on;
+plot(idx, log_Fy(idx), 'LineWidth',1.2);
+xlabel('step'); ylabel('Force (N)'); title('Tangential friction force');
+legend({'F_x','F_y'}, 'Location','best');
+
+nexttile;
+plot(idx, hypot(log_Fx(idx), log_Fy(idx)), 'LineWidth',1.2); grid on;
+xlabel('step'); ylabel('||F_t|| (N)'); title('Tangential force magnitude');
+
+nexttile;
+plot(idx, log_F(idx)-log_Fmeas(idx), 'LineWidth',1.2); grid on;
+xlabel('step'); ylabel('Fz - Fz_{meas} (N)'); title('Force projection error');
 
 end % ===== end main_sim =====
 

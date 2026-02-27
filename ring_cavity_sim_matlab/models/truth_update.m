@@ -91,9 +91,10 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
                 break;
             end
 
-            dq = -[ r(1)/max(P.k_z,1e-12);
-                    r(2)/max(P.k_thx,1e-12);
-                    r(3)/max(P.k_thy,1e-12) ];
+            % r = F_contact - K*(q-q_ref), so use +r/K update toward equilibrium
+            dq = [ r(1)/max(P.k_z,1e-12);
+                   r(2)/max(P.k_thx,1e-12);
+                   r(3)/max(P.k_thy,1e-12) ];
 
             dq = P.eq_relax(:) .* dq;
             dq(2:3) = max(min(dq(2:3), P.dtheta_max), -P.dtheta_max);
