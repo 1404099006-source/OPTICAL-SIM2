@@ -189,9 +189,12 @@ for it = 1:P.eq_max_iter
         break;
     end
 
-    dq = -[res(1)/max(P.k_z,1e-12);
-           res(2)/max(P.k_thx,1e-12);
-           res(3)/max(P.k_thy,1e-12)];
+    % Residual form: r = F_contact - K*(q-q_ref).
+    % Use +r/K update so in free-space (F_contact=0) state moves toward q_ref
+    % instead of diverging away.
+    dq = [res(1)/max(P.k_z,1e-12);
+          res(2)/max(P.k_thx,1e-12);
+          res(3)/max(P.k_thy,1e-12)];
     dq = P.eq_relax .* dq;
     dq(2:3) = max(min(dq(2:3), P.dtheta_max), -P.dtheta_max);
     q = q + dq;
