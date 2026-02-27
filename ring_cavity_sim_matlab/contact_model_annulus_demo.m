@@ -123,6 +123,7 @@ fprintf('Mean |dx_true- dx_cmd| in [u,v,z] = [%.3e %.3e %.3e]\n', ...
 plot_main_results(log);
 plot_contact_snapshots(log);
 plot_step_motion(log);
+plot_coupling_diagnostics(log);
 
 end
 
@@ -395,6 +396,78 @@ plot(k, log.gmin, 'LineWidth',1.1); hold on; grid on;
 yline(0,'--');
 xlabel('step'); ylabel('g_{min} (um)');
 title('Contact indicator per step');
+end
+
+
+function plot_coupling_diagnostics(log)
+% Coupling-only diagnostics: visualize uv motion coupling into theta/moment/friction.
+k = 1:numel(log.Fz);
+du = log.dx_cmd(1,:); dv = log.dx_cmd(2,:);
+dthx = log.dx_true(4,:); dthy = log.dx_true(5,:);
+Mx = log.Mx; My = log.My; Fx = log.Fx; Fy = log.Fy;
+
+% finite values mask
+m = isfinite(du) & isfinite(dv) & isfinite(dthx) & isfinite(dthy) & ...
+    isfinite(Mx) & isfinite(My) & isfinite(Fx) & isfinite(Fy);
+if nnz(m) < 5
+    return;
+end
+
+% scalar coupling indexes (simple, robust)
+uv_step = hypot(du, dv);
+dth_step = hypot(dthx, dthy);
+M_step = hypot(Mx, My);
+Ftan_step = hypot(Fx, Fy);
+
+% normalized correlation summary
+c_uv_th = corrcoef(uv_step(m), dth_step(m));
+c_uv_M  = corrcoef(uv_step(m), M_step(m));
+c_uv_Ft = corrcoef(uv_step(m), Ftan_step(m));
+
+r_uv_th = pick_r(c_uv_th);
+r_uv_M  = pick_r(c_uv_M);
+r_uv_Ft = pick_r(c_uv_Ft);
+
+figure('Name','UV coupling diagnostics','Color','w');
+tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+
+nexttile;
+plot(k, uv_step, 'LineWidth',1.2); hold on; grid on;
+plot(k, dth_step, 'LineWidth',1.2);
+xlabel('step'); ylabel('magnitude per step');
+legend({'||d[u,v]_{cmd}||','||d[\theta_x,\theta_y]_{true}||'}, 'Location','best');
+title(sprintf('UV→theta coupling, corr=%.3f', r_uv_th));
+
+nexttile;
+plot(k, uv_step, 'LineWidth',1.2); hold on; grid on;
+plot(k, M_step, 'LineWidth',1.2);
+xlabel('step'); ylabel('magnitude');
+legend({'||d[u,v]_{cmd}||','||[M_x,M_y]||'}, 'Location','best');
+title(sprintf('UV→moment coupling, corr=%.3f', r_uv_M));
+
+nexttile;
+plot(k, uv_step, 'LineWidth',1.2); hold on; grid on;
+plot(k, Ftan_step, 'LineWidth',1.2);
+xlabel('step'); ylabel('magnitude');
+legend({'||d[u,v]_{cmd}||','||[F_x,F_y]||'}, 'Location','best');
+title(sprintf('UV→friction coupling, corr=%.3f', r_uv_Ft));
+
+nexttile;
+scatter(uv_step(m), M_step(m), 10, k(m), 'filled'); grid on;
+xlabel('||d[u,v]_{cmd}||'); ylabel('||[M_x,M_y]||');
+cb=colorbar; ylabel(cb,'step');
+title('UV step vs contact moment (colored by step)');
+
+fprintf('[Coupling diagnostics] corr(UV, dTheta)=%.3f, corr(UV, M)=%.3f, corr(UV, F_t)=%.3f\n', ...
+    r_uv_th, r_uv_M, r_uv_Ft);
+end
+
+function r = pick_r(C)
+if isequal(size(C), [2 2]) && all(isfinite(C(:)))
+    r = C(1,2);
+else
+    r = NaN;
+end
 end
 
 end
