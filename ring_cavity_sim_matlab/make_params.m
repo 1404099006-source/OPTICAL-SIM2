@@ -241,21 +241,38 @@ P.z_ref = 30;             % um
 
 
 P.loss_abs_sigma_ppm = 20;  % ppm, 拟合的绝对噪声底
-% ===== Geometry =====
-P.R_disk_um = 11000;   % 22mm diameter => R = 11mm = 11000um
+% ===== Geometry (annulus contact domain) =====
+P.Ro_um = 11000;   % outer radius, 22mm OD => 11mm
+P.Ri_um = 9000;    % inner radius, 18mm ID => 9mm
+P.R_disk_um = P.Ro_um; % keep legacy field for compatibility
 
 % ===== Contact "foundation" stiffness (Winkler bed) =====
 % pressure p = k_w * indentation (N/um^3)  [因为 p(N/um^2)=k_w(N/um^3)*w(um)]
-P.k_w = 1e-9;   % 先给一个小量级，后面按你希望的 F-δ 标定
+P.k_w = 1e-9;
+P.g0_um = 0;
 
-% ===== Compliance (ball-joint / compliant mount) =====
-% Δz = c_z * Fz
-% Δθ = C_theta * [Mx; My]  (力矩会把倾角压向0)
-P.c_z = 2.0;            % um/N  （越大越软）
-P.c_th = 5e-8;          % rad/(N*um) （越大越容易找平）
+% ===== Compliance / quasi-static equilibrium =====
+% Fz = kz*(z-zr), Mx = kthx*(thx-thxr), My = kthy*(thy-thyr)
+P.c_z = 2.0;            % um/N
+P.c_th = 5e-8;          % rad/(N*um)
+P.k_z = 1/max(P.c_z,1e-12);        % N/um
+P.k_thx = 1/max(P.c_th,1e-18);     % N*um/rad
+P.k_thy = P.k_thx;
 P.alpha_def = 0.25;     % deformation 1st-order update rate (0~1)
+P.eq_max_iter = 20;
+P.eq_relax = [0.6; 0.6; 0.6];
+P.eq_tol = [1e-4; 1e-7; 1e-7];
 
-% ===== Numerical integration grid over disk =====
+% weak uv -> tilt coupling through gripper flexibility [rad/um]
+P.K_uv_to_th = [0, 2e-9; -2e-9, 0];
+
+% ===== Friction (stick-slip + Coulomb limit) =====
+P.mu = 0.20;
+P.k_t = 0.30 * P.k_w;   % N/um^3
+P.alpha_fx2fz = 0.0;    % sensor-axis projection coefficients
+P.alpha_fy2fz = 0.0;
+
+% ===== Numerical integration grid =====
 P.grid_step_um = 300;   % 网格间距，越小越精细但更慢，300~500um够用
 
 
@@ -263,15 +280,21 @@ P.grid_step_um = 300;   % 网格间距，越小越精细但更慢，300~500um够
 
 % ---------- Random seed ----------
 P.seed = 42;
-% Precompute disk grid points and area weights
+% Precompute annulus contact grid points and area weights
 dx = P.grid_step_um;
-xs = -P.R_disk_um:dx:P.R_disk_um;
+xs = -P.Ro_um:dx:P.Ro_um;
 ys = xs;
 [Xg, Yg] = meshgrid(xs, ys);
-mask = (Xg.^2 + Yg.^2) <= P.R_disk_um^2;
-P.disk_x = Xg(mask);      % column vectors
-P.disk_y = Yg(mask);
-P.disk_dA = dx*dx;        % each cell area (um^2)
+r2 = Xg.^2 + Yg.^2;
+mask_ann = (r2 <= P.Ro_um^2) & (r2 >= P.Ri_um^2);
+P.contact_x = Xg(mask_ann);      % column vectors
+P.contact_y = Yg(mask_ann);
+P.contact_dA = dx*dx;            % each cell area (um^2)
+
+% Legacy aliases (force_model fallback / compatibility)
+P.disk_x = P.contact_x;
+P.disk_y = P.contact_y;
+P.disk_dA = P.contact_dA;
 
 % ---------- Final alignment guard (keep optical & geometric zero aligned) ----------
 if isfield(P,'align_optical_geo') && P.align_optical_geo
