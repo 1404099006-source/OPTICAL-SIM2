@@ -14,28 +14,10 @@ P = build_annulus_grid(P);
 
 %% 2) Robot command profile (standalone test trajectory)
 N = P.N;
-zr_cmd = zeros(1,N);
-ur_cmd = zeros(1,N);
-vr_cmd = zeros(1,N);
-
-for k = 1:N
-    if k <= 120
-        zr_cmd(k) = -25 + 0.22*k;   % approach toward contact
-    elseif k <= 260
-        zr_cmd(k) = 1.5 + 0.015*(k-120); % mild force build-up
-    else
-        zr_cmd(k) = 3.6 + 0.006*(k-260); % slow continuation pressing
-    end
-
-    if k > 110
-        % in-plane scan during contact phase (to excite weak uv coupling + friction)
-        ur_cmd(k) = 8*sin(2*pi*(k-110)/140);
-        vr_cmd(k) = 6*cos(2*pi*(k-110)/170);
-    end
-end
+[zr_cmd, ur_cmd, vr_cmd] = build_command_profile(P);
 
 %% 3) State initialization
-x = [0;0;-25; deg2rad(0.006); -deg2rad(0.005)]; % true [u,v,z,thx,thy]
+x = P.x0(:); % true [u,v,z,thx,thy]
 s_t = [0;0];                                     % tangential stick displacement (um)
 
 % logs
@@ -53,6 +35,9 @@ log.Ac = nan(1,N);
 log.gmin = nan(1,N);
 log.stick = false(1,N);
 log.residual_norm = nan(1,N);
+log.duv_cmd = nan(2,N);
+log.dx_true = nan(5,N);
+log.dx_cmd = nan(5,N);
 
 % for contact map snapshots
 snap_idx = unique(round([0.20,0.45,0.70,0.92] * N));
@@ -79,8 +64,14 @@ for k = 1:N
 
     if k == 1
         duv = [0;0];
+        dz_cmd = 0;
+        dx_cmd = zeros(5,1);
+        dx_true = zeros(5,1);
     else
         duv = [ur_cmd(k)-ur_cmd(k-1); vr_cmd(k)-vr_cmd(k-1)];
+        dz_cmd = zr_cmd(k)-zr_cmd(k-1);
+        dx_cmd = [duv; dz_cmd; 0; 0];
+        dx_true = x - log.x(:,k-1);
     end
 
     [Fx, Fy, s_t, is_stick] = tangential_friction_step(Fz, Ac, duv, s_t, P);
@@ -99,6 +90,9 @@ for k = 1:N
     log.gmin(k) = gmin;
     log.stick(k) = is_stick;
     log.residual_norm(k) = out.residual_norm;
+    log.duv_cmd(:,k) = duv;
+    log.dx_cmd(:,k) = dx_cmd;
+    log.dx_true(:,k) = dx_true;
 
     if any(k == snap_idx)
         snapshots(end+1).k = k; %#ok<AGROW>
@@ -120,10 +114,15 @@ fprintf('Final Fz=%.4f N, Fz_meas=%.4f N\n', log.Fz(end), log.Fz_meas(end));
 fprintf('Final theta=[%.4e, %.4e] rad\n', log.x(4,end), log.x(5,end));
 fprintf('Max contact area ratio Ac/A_ring = %.3f\n', max(log.Ac)/P.A_ring_um2); 
 fprintf('Stick ratio = %.3f\n', mean(log.stick));
+fprintf('Mean |dx_true- dx_cmd| in [u,v,z] = [%.3e %.3e %.3e]\n', ...
+    mean(abs(log.dx_true(1,:)-log.dx_cmd(1,:))), ...
+    mean(abs(log.dx_true(2,:)-log.dx_cmd(2,:))), ...
+    mean(abs(log.dx_true(3,:)-log.dx_cmd(3,:))));
 
 %% 6) Visualization
 plot_main_results(log);
 plot_contact_snapshots(log);
+plot_step_motion(log);
 
 end
 
@@ -157,6 +156,21 @@ P.mu = 0.20;
 P.k_t = 0.30 * P.k_w;      % N/um^3
 P.alpha_fx2fz = 0.006;      % sensor axis misalignment projection
 P.alpha_fy2fz = -0.004;
+
+% initial state
+P.x0 = [0; 0; -25; deg2rad(0.006); -deg2rad(0.005)];
+
+% command profile settings (tunable)
+P.k1 = 140;  % approach phase end
+P.k2 = 300;  % build-up phase end
+P.zr_start = -25;
+P.zr_contact_hint = 0.8;
+P.zr_end = 5.0;
+P.uv_start = 120;
+P.uv_amp_u = 6.0;
+P.uv_amp_v = 4.5;
+P.uv_Tu = 160;
+P.uv_Tv = 200;
 end
 
 
@@ -172,6 +186,33 @@ P.contact_dA = P.grid_step_um^2;
 P.A_ring_um2 = pi*(P.Ro_um^2 - P.Ri_um^2);
 end
 
+
+
+
+function [zr_cmd, ur_cmd, vr_cmd] = build_command_profile(P)
+N = P.N;
+zr_cmd = zeros(1,N);
+ur_cmd = zeros(1,N);
+vr_cmd = zeros(1,N);
+
+for k = 1:N
+    if k <= P.k1
+        a = (k-1) / max(P.k1-1,1);
+        zr_cmd(k) = (1-a) * P.zr_start + a * P.zr_contact_hint;
+    elseif k <= P.k2
+        a = (k-P.k1) / max(P.k2-P.k1,1);
+        zr_cmd(k) = (1-a) * P.zr_contact_hint + a * (0.7*P.zr_end);
+    else
+        a = (k-P.k2) / max(P.N-P.k2,1);
+        zr_cmd(k) = (1-a) * (0.7*P.zr_end) + a * P.zr_end;
+    end
+
+    if k > P.uv_start
+        ur_cmd(k) = P.uv_amp_u * sin(2*pi*(k-P.uv_start)/P.uv_Tu);
+        vr_cmd(k) = P.uv_amp_v * cos(2*pi*(k-P.uv_start)/P.uv_Tv);
+    end
+end
+end
 
 function [q, out] = solve_equilibrium_qs(q0, xr, th_ref, P)
 % Solve for q=[z;thx;thy]
@@ -319,4 +360,41 @@ for i = 1:min(4,numel(log.snapshots))
     title(sprintf('k=%d, Fz=%.3fN, Ac/A=%.2f%%', s.k, ...
         log.Fz(s.k), 100*log.Ac(s.k)/log.P.A_ring_um2));
 end
+end
+
+function plot_step_motion(log)
+k = 1:numel(log.Fz);
+figure('Name','Per-step commanded vs true motion','Color','w');
+tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+
+nexttile;
+plot(k, log.dx_cmd(1,:), 'LineWidth',1.1); hold on; grid on;
+plot(k, log.dx_true(1,:), '--', 'LineWidth',1.1);
+plot(k, log.dx_cmd(2,:), 'LineWidth',1.1);
+plot(k, log.dx_true(2,:), '--', 'LineWidth',1.1);
+xlabel('step'); ylabel('um/step');
+legend({'du_{cmd}','du_{true}','dv_{cmd}','dv_{true}'}, 'Location','best');
+title('In-plane step motion');
+
+nexttile;
+plot(k, log.dx_cmd(3,:), 'LineWidth',1.1); hold on; grid on;
+plot(k, log.dx_true(3,:), '--', 'LineWidth',1.1);
+xlabel('step'); ylabel('um/step');
+legend({'dz_{cmd}','dz_{true}'}, 'Location','best');
+title('Normal step motion');
+
+nexttile;
+plot(k, log.dx_true(4,:), 'LineWidth',1.1); hold on; grid on;
+plot(k, log.dx_true(5,:), 'LineWidth',1.1);
+xlabel('step'); ylabel('rad/step');
+legend({'d\theta_x','d\theta_y'}, 'Location','best');
+title('True angular increment per step');
+
+nexttile;
+plot(k, log.gmin, 'LineWidth',1.1); hold on; grid on;
+yline(0,'--');
+xlabel('step'); ylabel('g_{min} (um)');
+title('Contact indicator per step');
+end
+
 end
