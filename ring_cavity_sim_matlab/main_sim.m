@@ -417,6 +417,68 @@ nexttile; plot(1:Kend, devuv_geo, 'LineWidth',1.1); grid on;
 xlabel('step'); ylabel('||[u v]|| (\mum)'); title('UV norm to geo(0)');
 
 
+% ---- Figure 6: Convergence dashboard (key metrics) ----
+figure('Name','Convergence dashboard','Color','w');
+tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+
+x_star = zeros(5,1);
+if isfield(P,'x_star') && numel(P.x_star)==5
+    x_star = P.x_star(:);
+end
+Dev_star = X - x_star;
+pose_uv_to_star = vecnorm(Dev_star(1:2,:),2,1);
+pose_ang_to_star = vecnorm(Dev_star(4:5,:),2,1);
+
+nexttile;
+plot(1:Kend, F, 'LineWidth',1.2); grid on; hold on;
+yline(P.force_targets(min(level,numel(P.force_targets))), '--');
+xlabel('step'); ylabel('Fz (N)'); title('Force build-up and hold');
+
+nexttile;
+plot(1:Kend, vecnorm(log_e(:,1:Kend),2,1), 'LineWidth',1.2); grid on;
+xlabel('step'); ylabel('||e||'); title('Spot/aperture convergence');
+
+nexttile;
+plot(1:Kend, log_Ltrue(1:Kend), 'LineWidth',1.2); grid on; hold on;
+fit_idx2 = find(isfinite(log_Lfit(1:Kend)));
+if ~isempty(fit_idx2)
+    scatter(fit_idx2, log_Lfit(fit_idx2), 10, 'filled');
+end
+yline(P.L_thresh_ppm, '--', sprintf('%.0f ppm target', P.L_thresh_ppm));
+xlabel('step'); ylabel('Loss (ppm)'); title('Loss convergence');
+
+nexttile;
+yyaxis left;
+plot(1:Kend, pose_uv_to_star, 'LineWidth',1.2); ylabel('||[u,v]-[u*,v*]|| (\mum)');
+yyaxis right;
+plot(1:Kend, pose_ang_to_star, 'LineWidth',1.2); ylabel('||[\theta_x,\theta_y]-[\theta_x^*,\theta_y^*]|| (rad)');
+grid on; xlabel('step');
+title('Pose convergence to target');
+
+% ---- Figure 7: Contact onset zoom (adhesion risk indicator) ----
+k_contact = find(log_F(1:Kend) > 1e-6, 1, 'first');
+if ~isempty(k_contact)
+    w = 80;
+    ks = max(1, k_contact-w):min(Kend, k_contact+w);
+    figure('Name','Contact onset zoom','Color','w');
+    tiledlayout(2,1,'Padding','compact','TileSpacing','compact');
+
+    nexttile;
+    plot(ks, log_F(ks), 'LineWidth',1.2); grid on;
+    xlabel('step'); ylabel('Fz (N)');
+    title(sprintf('Force around first contact (k=%d)', k_contact));
+
+    nexttile;
+    plot(ks, log_g(ks), 'LineWidth',1.2); hold on; grid on;
+    if any(isfinite(log_ggeo(ks)))
+        plot(ks, log_ggeo(ks), 'LineWidth',1.2);
+        legend({'g\_signed','g\_geo'},'Location','best');
+    end
+    yline(0,'--');
+    xlabel('step'); ylabel('gap (\mum)');
+    title('Gap transition near contact');
+end
+
 end % ===== end main_sim =====
 
 
