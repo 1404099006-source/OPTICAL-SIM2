@@ -172,6 +172,11 @@ P.uv_amp_u = 6.0;
 P.uv_amp_v = 4.5;
 P.uv_Tu = 160;
 P.uv_Tv = 200;
+
+% smoother contact-stage z profile + uv ramp-in
+P.z_contact_margin = 0.35;     % um, slow zone around first touch
+P.z_slow_factor = 0.25;        % <1 slows z increment in contact window
+P.uv_ramp_steps = 36;          % steps to ramp uv amplitude from 0 to 1
 end
 
 
@@ -196,6 +201,7 @@ zr_cmd = zeros(1,N);
 ur_cmd = zeros(1,N);
 vr_cmd = zeros(1,N);
 
+% Base staged z command (same structure as before)
 for k = 1:N
     if k <= P.k1
         a = (k-1) / max(P.k1-1,1);
@@ -207,10 +213,27 @@ for k = 1:N
         a = (k-P.k2) / max(P.N-P.k2,1);
         zr_cmd(k) = (1-a) * (0.7*P.zr_end) + a * P.zr_end;
     end
+end
 
+% Slow-down around contact zone: reduce per-step dz near z~0 to avoid area jump
+dz = [0, diff(zr_cmd)];
+for k = 2:N
+    if (zr_cmd(k-1) <= P.z_contact_margin) && (zr_cmd(k-1) >= -P.z_contact_margin)
+        dz(k) = P.z_slow_factor * dz(k);
+    end
+end
+zr_cmd = zr_cmd(1) + cumsum(dz);
+
+% uv command with smooth ramp-in to remove first-step spike
+for k = 1:N
     if k > P.uv_start
-        ur_cmd(k) = P.uv_amp_u * sin(2*pi*(k-P.uv_start)/P.uv_Tu);
-        vr_cmd(k) = P.uv_amp_v * cos(2*pi*(k-P.uv_start)/P.uv_Tv);
+        r = (k - P.uv_start) / max(P.uv_ramp_steps,1);
+        ramp = min(max(r,0),1);
+        % raised-cosine ramp for smooth velocity at start/end
+        ramp = 0.5 - 0.5*cos(pi*ramp);
+
+        ur_cmd(k) = ramp * P.uv_amp_u * sin(2*pi*(k-P.uv_start)/P.uv_Tu);
+        vr_cmd(k) = ramp * P.uv_amp_v * cos(2*pi*(k-P.uv_start)/P.uv_Tv);
     end
 end
 end
