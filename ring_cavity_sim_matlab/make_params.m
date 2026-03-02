@@ -1,4 +1,3 @@
-
 function P = make_params()
 %MAKE_PARAMS All simulation parameters in one place.
 
@@ -125,7 +124,7 @@ P.out_mag = 0.20;         % outlier magnitude (relative, e.g. +20%)
 P.F_pre_min = 0.5;   % N
 P.F_pre_max = 1.2;   % N
 % ---------- Force-continuation schedule ----------
-P.force_targets =  [0.4,0.6 0.8 1.0];  % N 逐级加力
+P.force_targets = [0.4, 0.6, 0.8, 1.0];  % N 低力阶梯，贴合前控制
 P.force_tol     = 0.12;   % N 目标力允许误差带（越小越严格，越大越稳）
 P.force_settle_steps = 8; % 每个台阶先稳住力若干步再开始fine
 % ===== Loss model params (optics-dominant) =====
@@ -133,7 +132,7 @@ P.L_min  = 200;      % ppm best floor
 
 % Sensitivity (reasonable defaults)
 P.Gp_ppm = 2500;     % position misalignment penalty weight
-P.Ga_ppm = 388;     % angle misalignment penalty weight (smaller than pos)
+P.Ga_ppm = 388;      % angle misalignment penalty weight
 P.Gc_ppm = 200;      % mild coupling
 
 % Angle normalization reference (rad)
@@ -202,7 +201,7 @@ end
 % ---- normalization radii on aperture plane (theoretical) ----
 P.aperture_ry_mm = 2.0;
 P.aperture_rz_mm = 2.0;
-P.e_enter_cont   = 0.25;   % 进入精调阈值（兼顾可收敛性与稳定性）
+P.e_enter_cont   = 0.25;   % 更严格进入精调阈值
 P.Juv_step_um    = 1.0;
 P.Juv_lambda     = 1e-3;
 % ===== Loss fine (quadratic fit) =====
@@ -217,7 +216,7 @@ P.qfit_min_improve = 0;        % 要求比当前点至少降低多少(ppm)，可
 
 
 % ---------- Step sizes (initial; can tune) ----------
-P.dz_approach = +0.5; % um/step, z-up positive, approach means increase z
+P.dz_approach = +0.5; % um/step, z-up positive, slower approach
 P.dz_backoff  = +5.0;   % um
 P.duv_coarse  = 2.0;    % um per step
 P.duv_fine    = 0.5;    % um per step
