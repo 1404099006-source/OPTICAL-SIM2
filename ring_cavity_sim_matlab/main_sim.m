@@ -69,6 +69,13 @@ state.Fz     = 0;
 state.Mx     = 0;
 state.My     = 0;
 state.seated = false;
+state.Fx     = 0;
+state.Fy     = 0;
+state.Mz     = 0;
+state.Ac     = 0;
+state.Fz_meas = 0;
+state.stick_ratio = 1;
+state.slip_ratio  = 0;
 
 % =============================
 % 2) Logs
@@ -87,6 +94,12 @@ log_Lfit  = nan(1, P.N);
 log_ok    = false(1, P.N);
 log_psucc = nan(1, P.N);
 log_mode  = strings(1,P.N);
+log_Fmeas = nan(1, P.N);
+log_Fx    = nan(1, P.N);
+log_Fy    = nan(1, P.N);
+log_Ac    = nan(1, P.N);
+log_stick = nan(1, P.N);
+log_slip  = nan(1, P.N);
 
 % =============================
 % 3) Mode / counters
@@ -263,6 +276,12 @@ for k = 1:P.N
     log_K(k)   = state.Keff;
     log_g(k)   = state.gmin;
     if isfield(state,'g_geo'), log_ggeo(k) = state.g_geo; end
+    if isfield(state,'Fz_meas'), log_Fmeas(k) = state.Fz_meas; end
+    if isfield(state,'Fx'), log_Fx(k) = state.Fx; end
+    if isfield(state,'Fy'), log_Fy(k) = state.Fy; end
+    if isfield(state,'Ac'), log_Ac(k) = state.Ac; end
+    if isfield(state,'stick_ratio'), log_stick(k) = state.stick_ratio; end
+    if isfield(state,'slip_ratio'), log_slip(k) = state.slip_ratio; end
 
 end
 
@@ -313,7 +332,11 @@ ur = Xr(1,:); vr = Xr(2,:); zr = Xr(3,:);
 figure('Name','Force & Contact','Color','w');
 tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
 
-nexttile; plot(idx, log_F(idx), 'LineWidth',1.2); grid on;
+nexttile; plot(idx, log_F(idx), 'LineWidth',1.2); hold on; grid on;
+if any(isfinite(log_Fmeas(1:Kend)))
+    plot(idx, log_Fmeas(idx), '--', 'LineWidth',1.1);
+    legend({'Fz true','Fz meas'}, 'Location','best');
+end
 xlabel('step'); ylabel('Fz (N)'); title('Normal force');
 
 nexttile; plot(idx, log_K(idx), 'LineWidth',1.2); grid on;
@@ -416,6 +439,99 @@ xlabel('step'); ylabel('\Delta \theta_y (rad)'); title('x - x_r (\theta_y)');
 nexttile; plot(1:Kend, devuv_geo, 'LineWidth',1.1); grid on;
 xlabel('step'); ylabel('||[u v]|| (\mum)'); title('UV norm to geo(0)');
 
+
+% ---- Figure 6: Convergence dashboard (key metrics) ----
+figure('Name','Convergence dashboard','Color','w');
+tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+
+x_star = zeros(5,1);
+if isfield(P,'x_star') && numel(P.x_star)==5
+    x_star = P.x_star(:);
+end
+Dev_star = X - x_star;
+pose_uv_to_star = vecnorm(Dev_star(1:2,:),2,1);
+pose_ang_to_star = vecnorm(Dev_star(4:5,:),2,1);
+
+nexttile;
+plot(1:Kend, F, 'LineWidth',1.2); grid on; hold on;
+yline(P.force_targets(min(level,numel(P.force_targets))), '--');
+xlabel('step'); ylabel('Fz (N)'); title('Force build-up and hold');
+
+nexttile;
+plot(1:Kend, vecnorm(log_e(:,1:Kend),2,1), 'LineWidth',1.2); grid on;
+xlabel('step'); ylabel('||e||'); title('Spot/aperture convergence');
+
+nexttile;
+plot(1:Kend, log_Ltrue(1:Kend), 'LineWidth',1.2); grid on; hold on;
+fit_idx2 = find(isfinite(log_Lfit(1:Kend)));
+if ~isempty(fit_idx2)
+    scatter(fit_idx2, log_Lfit(fit_idx2), 10, 'filled');
+end
+yline(P.L_thresh_ppm, '--', sprintf('%.0f ppm target', P.L_thresh_ppm));
+xlabel('step'); ylabel('Loss (ppm)'); title('Loss convergence');
+
+nexttile;
+yyaxis left;
+plot(1:Kend, pose_uv_to_star, 'LineWidth',1.2); ylabel('||[u,v]-[u*,v*]|| (\mum)');
+yyaxis right;
+plot(1:Kend, pose_ang_to_star, 'LineWidth',1.2); ylabel('||[\theta_x,\theta_y]-[\theta_x^*,\theta_y^*]|| (rad)');
+grid on; xlabel('step');
+title('Pose convergence to target');
+
+% ---- Figure 7: Contact onset zoom (adhesion risk indicator) ----
+k_contact = find(log_F(1:Kend) > 1e-6, 1, 'first');
+if ~isempty(k_contact)
+    w = 80;
+    ks = max(1, k_contact-w):min(Kend, k_contact+w);
+    figure('Name','Contact onset zoom','Color','w');
+    tiledlayout(2,1,'Padding','compact','TileSpacing','compact');
+
+    nexttile;
+    plot(ks, log_F(ks), 'LineWidth',1.2); grid on;
+    xlabel('step'); ylabel('Fz (N)');
+    title(sprintf('Force around first contact (k=%d)', k_contact));
+
+    nexttile;
+    plot(ks, log_g(ks), 'LineWidth',1.2); hold on; grid on;
+    if any(isfinite(log_ggeo(ks)))
+        plot(ks, log_ggeo(ks), 'LineWidth',1.2);
+        legend({'g\_signed','g\_geo'},'Location','best');
+    end
+    yline(0,'--');
+    xlabel('step'); ylabel('gap (\mum)');
+    title('Gap transition near contact');
+end
+
+
+% ---- Figure 8: Friction & contact area ----
+figure('Name','Friction and contact area','Color','w');
+tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+
+nexttile;
+plot(idx, log_Ac(idx), 'LineWidth',1.2); grid on;
+if isfield(P,'Ro_um') && isfield(P,'Ri_um')
+    A_ring = pi * (P.Ro_um^2 - P.Ri_um^2);
+    hold on;
+    plot(idx, log_Ac(idx)/A_ring, '--', 'LineWidth',1.1);
+    legend({'A_c (um^2)','A_c/A_{ring}'}, 'Location','best');
+end
+xlabel('step'); ylabel('Area'); title('Contact area evolution');
+
+nexttile;
+plot(idx, log_Fx(idx), 'LineWidth',1.2); hold on; grid on;
+plot(idx, log_Fy(idx), 'LineWidth',1.2);
+xlabel('step'); ylabel('Force (N)'); title('Tangential friction force');
+legend({'F_x','F_y'}, 'Location','best');
+
+nexttile;
+plot(idx, hypot(log_Fx(idx), log_Fy(idx)), 'LineWidth',1.2); grid on;
+xlabel('step'); ylabel('||F_t|| (N)'); title('Tangential force magnitude');
+
+nexttile;
+plot(idx, log_stick(idx), 'LineWidth',1.2); hold on; grid on;
+plot(idx, log_slip(idx), 'LineWidth',1.2);
+xlabel('step'); ylabel('ratio'); title('Local stick/slip ratio');
+legend({'stick ratio','slip ratio'}, 'Location','best');
 
 end % ===== end main_sim =====
 
