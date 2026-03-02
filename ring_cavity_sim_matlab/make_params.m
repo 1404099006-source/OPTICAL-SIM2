@@ -127,6 +127,12 @@ P.F_pre_max = 1.2;   % N
 P.force_targets = [0.4, 0.6, 0.8, 1.0];  % N 低力阶梯，贴合前控制
 P.force_tol     = 0.12;   % N 目标力允许误差带（越小越严格，越大越稳）
 P.force_settle_steps = 8; % 每个台阶先稳住力若干步再开始fine
+P.min_level_before_exit = numel(P.force_targets); % 阶梯力优先：到该级后才允许loss触发退出
+P.final_attach_enable = true;  % 最后一顶（贴合阶段）
+P.dz_attach_pulse = 0.05;      % um/step, 贴合阶段额外z推进
+P.attach_push_steps = 6;       % 额外推进步数
+P.attach_hold_steps = 12;      % 推进后保持步数
+P.attach_force_tol = 0.15;     % N, final_attach阶段力误差容忍
 % ===== Loss model params (optics-dominant) =====
 P.L_min  = 200;      % ppm best floor
 

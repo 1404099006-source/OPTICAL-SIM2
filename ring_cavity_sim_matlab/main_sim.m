@@ -25,6 +25,12 @@ if ~isfield(P,'fine_iter_per_level'); P.fine_iter_per_level = 20; end
 if ~isfield(P,'force_targets');       P.force_targets = [0.8 2 4 6 8]; end
 if ~isfield(P,'L_thresh_ppm');        P.L_thresh_ppm = 1200; end
 if ~isfield(P,'e_enter_cont');        P.e_enter_cont = 0.55; end   % 你用光路e时通常要放宽
+if ~isfield(P,'min_level_before_exit'); P.min_level_before_exit = numel(P.force_targets); end
+if ~isfield(P,'final_attach_enable');   P.final_attach_enable = true; end
+if ~isfield(P,'dz_attach_pulse');       P.dz_attach_pulse = 0.05; end   % um/step extra push
+if ~isfield(P,'attach_push_steps');     P.attach_push_steps = 6; end
+if ~isfield(P,'attach_hold_steps');     P.attach_hold_steps = 12; end
+if ~isfield(P,'attach_force_tol');      P.attach_force_tol = max(P.force_tol, 0.15); end
 if ~isfield(P,'Juv_step_um');         P.Juv_step_um  = 1.0; end
 if ~isfield(P,'Juv_lambda');          P.Juv_lambda   = 1e-3; end
 if ~isfield(P,'k_uv');                P.k_uv         = 1.0; end
@@ -104,13 +110,14 @@ log_slip  = nan(1, P.N);
 % =============================
 % 3) Mode / counters
 % =============================
-mode = "approach";    % approach -> seat -> coarse -> cont_settle -> cont_fine
+mode = "approach";    % approach -> seat -> coarse -> cont_settle -> cont_fine -> final_attach
 N_fit = 0;
 
 level = 1;
 F_target = P.force_targets(level);
 settle_cnt = 0;
 fine_iter  = 0;
+attach_cnt = 0;
 
 % force controller internal
 force_ctl.dz_bias = 0;
@@ -237,10 +244,22 @@ for k = 1:P.N
         log_ok(k)    = oknow;
         log_psucc(k) = infonow.p_succ;
 
-        if isfinite(Lnow) && oknow && (Lnow < P.L_thresh_ppm)
-            fprintf("Reached target loss < %.0f ppm at step %d (level %d), Lfit=%.1f ppm, F=%.2fN, N_fit=%d\n", ...
-                P.L_thresh_ppm, k, level, Lnow, state.Fz, N_fit);
-            break;
+        reached_loss = isfinite(Lnow) && oknow && (Lnow < P.L_thresh_ppm);
+        reached_process_level = (level >= P.min_level_before_exit);
+        if reached_loss
+            if reached_process_level
+                if P.final_attach_enable
+                    mode = "final_attach";
+                    attach_cnt = 0;
+                    fprintf("Loss met at level %d (step %d). Entering final_attach stage.\n", level, k);
+                else
+                    fprintf("Reached target loss < %.0f ppm at step %d (level %d), Lfit=%.1f ppm, F=%.2fN, N_fit=%d\n", ...
+                        P.L_thresh_ppm, k, level, Lnow, state.Fz, N_fit);
+                    break;
+                end
+            else
+                fprintf("Loss met at level %d but hold exit until min level %d.\n", level, P.min_level_before_exit);
+            end
         end
 
         % ---- force level budget ----
@@ -259,6 +278,31 @@ for k = 1:P.N
                 settle_cnt = 0;
                 fine_iter  = 0;
             end
+        end
+
+    elseif mode == "final_attach"
+
+        [dz_hold, force_ctl] = force_hold_dz_smooth_zup(state.Fz, F_target, P, force_ctl);
+        dz_extra = 0;
+        if attach_cnt < P.attach_push_steps
+            dz_extra = P.dz_attach_pulse;
+        end
+        action.dz = max(-P.dz_max, min(P.dz_max, dz_hold + dz_extra));
+        action.duv = [0;0];
+
+        [Lnow, oknow, ~] = sensor_lossfit(Xtrue.x, e, state.Keff, state.seated, P);
+        N_fit = N_fit + 1;
+        log_Lfit(k) = Lnow;
+        log_ok(k)   = oknow;
+
+        attach_cnt = attach_cnt + 1;
+        attach_done = (attach_cnt >= (P.attach_push_steps + P.attach_hold_steps));
+        attach_force_ok = abs(state.Fz - F_target) <= P.attach_force_tol;
+        attach_loss_ok = isfinite(Lnow) && oknow && (Lnow < P.L_thresh_ppm);
+        if attach_done && attach_force_ok && attach_loss_ok
+            fprintf("Final attach complete at step %d. Lfit=%.1f ppm, F=%.2fN, N_fit=%d\n", ...
+                k, Lnow, state.Fz, N_fit);
+            break;
         end
     end
 
