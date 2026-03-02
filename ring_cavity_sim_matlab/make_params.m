@@ -267,6 +267,7 @@ P.eq_tol = [1e-4; 1e-7; 1e-7];
 P.K_uv_to_th = [0, 2e-9; -2e-9, 0];
 
 % ===== Friction (stick-slip + Coulomb limit) =====
+P.friction_mode = "distributed"; % "distributed"(partial slip) or "lumped"(legacy)
 P.mu = 0.20;
 P.k_t = 0.30 * P.k_w;   % N/um^3
 P.alpha_fx2fz = 0.0;    % sensor-axis projection coefficients

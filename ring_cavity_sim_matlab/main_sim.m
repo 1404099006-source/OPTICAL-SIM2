@@ -74,6 +74,8 @@ state.Fy     = 0;
 state.Mz     = 0;
 state.Ac     = 0;
 state.Fz_meas = 0;
+state.stick_ratio = 1;
+state.slip_ratio  = 0;
 
 % =============================
 % 2) Logs
@@ -96,6 +98,8 @@ log_Fmeas = nan(1, P.N);
 log_Fx    = nan(1, P.N);
 log_Fy    = nan(1, P.N);
 log_Ac    = nan(1, P.N);
+log_stick = nan(1, P.N);
+log_slip  = nan(1, P.N);
 
 % =============================
 % 3) Mode / counters
@@ -276,6 +280,8 @@ for k = 1:P.N
     if isfield(state,'Fx'), log_Fx(k) = state.Fx; end
     if isfield(state,'Fy'), log_Fy(k) = state.Fy; end
     if isfield(state,'Ac'), log_Ac(k) = state.Ac; end
+    if isfield(state,'stick_ratio'), log_stick(k) = state.stick_ratio; end
+    if isfield(state,'slip_ratio'), log_slip(k) = state.slip_ratio; end
 
 end
 
@@ -522,8 +528,10 @@ plot(idx, hypot(log_Fx(idx), log_Fy(idx)), 'LineWidth',1.2); grid on;
 xlabel('step'); ylabel('||F_t|| (N)'); title('Tangential force magnitude');
 
 nexttile;
-plot(idx, log_F(idx)-log_Fmeas(idx), 'LineWidth',1.2); grid on;
-xlabel('step'); ylabel('Fz - Fz_{meas} (N)'); title('Force projection error');
+plot(idx, log_stick(idx), 'LineWidth',1.2); hold on; grid on;
+plot(idx, log_slip(idx), 'LineWidth',1.2);
+xlabel('step'); ylabel('ratio'); title('Local stick/slip ratio');
+legend({'stick ratio','slip ratio'}, 'Location','best');
 
 end % ===== end main_sim =====
 

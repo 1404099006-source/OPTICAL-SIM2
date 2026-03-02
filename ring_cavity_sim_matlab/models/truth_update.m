@@ -30,8 +30,10 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     % friction defaults
     if ~isfield(P,'mu');              P.mu = 0.2; end
     if ~isfield(P,'k_t');             P.k_t = 0.3 * P.k_w; end
+    if ~isfield(P,'g0_um');            P.g0_um = 0; end
     if ~isfield(P,'alpha_fx2fz');     P.alpha_fx2fz = 0.0; end
     if ~isfield(P,'alpha_fy2fz');     P.alpha_fy2fz = 0.0; end
+    if ~isfield(P,'friction_mode');   P.friction_mode = "distributed"; end
 
     % ---------------------------
     % 1) Apply robot command to nominal pose xr (in cavity {C})
@@ -128,31 +130,103 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     [Fz3, Mx3, My3, Keff3, g_geo3, g_signed3, Ac3] = force_model(Xtrue.x, P);
 
     % ---------------------------
-    % 7) Friction (stick-slip, lumped over contact area)
+    % 7) Friction (stick-slip)
+    %   - distributed(default): per-node partial slip
+    %   - lumped: legacy whole-contact stick/slip
     % ---------------------------
-    if ~isfield(state,'s_t') || numel(state.s_t)~=2
-        state.s_t = zeros(2,1); % um, equivalent tangential stick displacement
-    end
+    Ft = [0;0];
+    Mz = 0;
+    stick_ratio = 1.0;
+    slip_ratio = 0.0;
 
-    if Ac3 <= 0 || Fz3 <= 0
-        state.s_t = zeros(2,1);
-        Ft = [0;0];
-        Mz = 0;
-    else
-        s_trial = state.s_t + duv;
-        Ft_trial = (P.k_t * Ac3) * s_trial; % N
-
-        Ft_lim = P.mu * Fz3;
-        nFt = norm(Ft_trial);
-        if nFt <= Ft_lim || nFt < 1e-15
-            Ft = Ft_trial;               % stick
-            state.s_t = s_trial;
+    if P.friction_mode == "distributed"
+        if isfield(P,'contact_x') && isfield(P,'contact_y')
+            Xc = P.contact_x(:).';
+            Yc = P.contact_y(:).';
+            dA = P.contact_dA;
         else
-            Ft = Ft_lim * (Ft_trial / nFt); % slip saturation
-            state.s_t = Ft / max(P.k_t * Ac3, 1e-15);
+            Xc = P.disk_x(:).';
+            Yc = P.disk_y(:).';
+            dA = P.disk_dA;
         end
 
-        Mz = 0; % first version: symmetric lumped model
+        Nn = numel(Xc);
+        if ~isfield(state,'s_t') || ~isequal(size(state.s_t), [2, Nn])
+            state.s_t = zeros(2, Nn); % per-node tangential stick displacement [um]
+        end
+
+        if Ac3 <= 0 || Fz3 <= 0 || Nn == 0
+            state.s_t = zeros(2, Nn);
+        else
+            if ~isfield(P,'K_uv_to_th'); P.K_uv_to_th = zeros(2,2); end
+            th_uv = P.K_uv_to_th * Xtrue.x(1:2);
+            thx_eff = Xtrue.x(4) + th_uv(1);
+            thy_eff = Xtrue.x(5) + th_uv(2);
+
+            g = P.g0_um - Xtrue.x(3) + thx_eff .* Yc - thy_eff .* Xc;
+            w = max(-g, 0);
+            in_contact = (w > 0);
+            p_i = P.k_w .* w; % [N/um^2]
+
+            duv_mat = repmat(duv(:), 1, Nn);
+            s_trial = state.s_t + duv_mat;
+            t_trial = P.k_t .* s_trial; % [N/um^2]
+
+            n_trial = sqrt(sum(t_trial.^2, 1));
+            t_lim = P.mu .* p_i;
+
+            stick_mask = (n_trial <= t_lim) | (n_trial < 1e-15) | (~in_contact);
+            slip_mask = in_contact & ~stick_mask;
+
+            t = zeros(2, Nn);
+            t(:, stick_mask) = t_trial(:, stick_mask);
+            if any(slip_mask)
+                scale = t_lim(slip_mask) ./ max(n_trial(slip_mask), 1e-15);
+                t(:, slip_mask) = t_trial(:, slip_mask) .* scale;
+            end
+            t(:, ~in_contact) = 0;
+
+            Ft = sum(t, 2) .* dA;
+            Mz = sum((Xc .* t(2,:) - Yc .* t(1,:)) .* dA);
+
+            if P.k_t > 0
+                state.s_t = t ./ P.k_t;
+            else
+                state.s_t = zeros(2, Nn);
+            end
+
+            n_contact = nnz(in_contact);
+            if n_contact > 0
+                stick_ratio = nnz(stick_mask & in_contact) / n_contact;
+                slip_ratio = nnz(slip_mask) / n_contact;
+            end
+        end
+    else
+        % legacy lumped model
+        if ~isfield(state,'s_t') || numel(state.s_t)~=2
+            state.s_t = zeros(2,1); % um, equivalent tangential stick displacement
+        end
+
+        if Ac3 <= 0 || Fz3 <= 0
+            state.s_t = zeros(2,1);
+        else
+            s_trial = state.s_t + duv;
+            Ft_trial = (P.k_t * Ac3) * s_trial; % N
+
+            Ft_lim = P.mu * Fz3;
+            nFt = norm(Ft_trial);
+            if nFt <= Ft_lim || nFt < 1e-15
+                Ft = Ft_trial;               % stick
+                state.s_t = s_trial;
+                stick_ratio = 1.0;
+                slip_ratio = 0.0;
+            else
+                Ft = Ft_lim * (Ft_trial / nFt); % slip saturation
+                state.s_t = Ft / max(P.k_t * Ac3, 1e-15);
+                stick_ratio = 0.0;
+                slip_ratio = 1.0;
+            end
+        end
     end
 
     % ---------------------------
@@ -171,5 +245,7 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     state.Fx     = Ft(1);
     state.Fy     = Ft(2);
     state.Mz     = Mz;
+    state.stick_ratio = stick_ratio;
+    state.slip_ratio  = slip_ratio;
     state.Fz_meas = Fz3 + P.alpha_fx2fz * Ft(1) + P.alpha_fy2fz * Ft(2);
 end
