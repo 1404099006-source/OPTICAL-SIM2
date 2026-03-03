@@ -79,12 +79,25 @@ P.optics_mirror_id = 4;
 P.drift_mode = "smooth";  % "smooth" or "jump"
 P.F_touch = 0.1;          % N, contact threshold
 P.kappa_drift = 0.8;      % 1/N, drift saturation speed
-P.drift_rot_only = true;  % only allow rotational drift (no translation)
+P.drift_rot_only = false; % allow translational + rotational drift
 P.drift_max = [0; 0; 0; 2e-5; -2e-5]; % [um;um;um;rad;rad], max drift
 
 % Smooth drift dynamics (optional)
 P.rho_drift = 0.15;       % update rate in dynamic version
-P.sigma_drift_rw = [0; 0; 0; 2e-6; 2e-6]; % per-step random walk
+% per-step random walk [u; v; z; thx; thy]
+% translation terms are set to small non-zero values (um) to model free-space
+% repeatability + contact micro-slip induced drift.
+P.sigma_drift_rw = [0.02; 0.02; 0.01; 2e-6; 2e-6];
+
+% Three-stage drift (A free-space / B critical-contact / C lock+creep)
+P.F_lock = 0.8;             % N, enter lock/pressed stage threshold
+P.drift_peak_scale = 1.0;   % stage-B directional drift peak scale
+P.drift_lock_scale = 0.45;  % stage-C steady directional drift scale
+P.kappa_lock = 2.0;         % lock-stage transition rate
+P.rw_scale_free = 0.6;      % random drift scale in stage A
+P.rw_scale_peak = 2.0;      % random drift peak scale in stage B
+P.rw_scale_lock = 0.35;     % random drift scale in stage C
+P.creep_rate = 0.03;        % stage-C slow creep toward lock target
 
 % Jump drift parameters (if used)
 P.Fc_mean = 3.0;          % N
