@@ -24,7 +24,8 @@ end
 % Initial robot-nominal vs lens-true mismatch (x - xr at step 0)
 % [u; v; z; thx; thy] in [um; um; um; rad; rad]
 if ~isfield(P,'Dc_init')
-    P.Dc_init = zeros(5,1);
+    % small initial robot-vs-lens mismatch: [u; v; z; thx; thy]
+    P.Dc_init = [1.5; -1.0; 0.8; 2e-6; -2e-6];
 end
 
 % ===============================
