@@ -21,6 +21,12 @@ if ~isfield(P,'xC_init')
     P.xC_init = [80; -60; -200; deg2rad(arcsec30); -deg2rad(arcsec30)];
 end
 
+% Initial robot-nominal vs lens-true mismatch (x - xr at step 0)
+% [u; v; z; thx; thy] in [um; um; um; rad; rad]
+if ~isfield(P,'Dc_init')
+    P.Dc_init = zeros(5,1);
+end
+
 % ===============================
 % Vision normalization / stage switching (set later in block)
 % ===============================

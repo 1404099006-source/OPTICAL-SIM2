@@ -63,8 +63,11 @@ end
 if ~isfield(P,'xR_to_C_bias')
     P.xR_to_C_bias = zeros(5,1);
 end
+if ~isfield(P,'Dc_init')
+    P.Dc_init = zeros(5,1);
+end
 Xtrue.xr = P.xC_init + P.xR_to_C_bias;
-Xtrue.Dc = zeros(5,1);
+Xtrue.Dc = P.Dc_init(:);
 Xtrue.x  = Xtrue.xr + Xtrue.Dc;
 
 state.F_prev = 0;
