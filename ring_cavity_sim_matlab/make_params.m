@@ -18,7 +18,7 @@ end
 if ~isfield(P,'xC_init')
     % Assume initial tilt within ~30 arcsec
     arcsec30 = 30/3600; % deg
-    P.xC_init = [80; -60; -200; deg2rad(arcsec30); -deg2rad(arcsec30)];
+    P.xC_init = [80; -60; -50; deg2rad(arcsec30); -deg2rad(arcsec30)];
 end
 
 % Initial robot-nominal vs lens-true mismatch (x - xr at step 0)
@@ -167,7 +167,7 @@ P.ang_ref_rad = deg2rad(0.02);
 % L_ppm = 1e6 * (ell0 + ell_clip(rho)), rho from optics aperture offset (dy,dz)
 P.use_physical_loss = true;
 P.L0_ppm = 500;                 % fixed round-trip baseline loss (ppm)
-P.aperture_phys_radius_mm = 0.5; % real aperture radius a (mm)
+P.aperture_phys_radius_mm = 1.0; % real aperture radius a (mm)
 % Gaussian mode radii at aperture plane (45 deg astigmatism equivalent)
 P.w_t_mm = 0.395;
 P.w_s_mm = 0.333;
@@ -239,9 +239,9 @@ end
 % ---- normalization radii on aperture plane (theoretical) ----
 P.aperture_ry_mm = 2.0;
 P.aperture_rz_mm = 2.0;
-P.e_enter_cont   = 0.12;   % mm, 进入精调阈值（更严格，避免损耗盲调）
-P.Juv_step_um    = 1.0;
-P.Juv_lambda     = 1e-3;
+P.e_enter_cont   = 0.4;    % mm, coarse->continuation gate (relaxed for current tuning)
+P.Juv_step_um    = 1.5;
+P.Juv_lambda     = 5e-4;
 % ===== Loss fine (quadratic fit) =====
 P.loss_fit_step_um = 0.8;      % 采样半径 Δ（um），0.5~2um 之间调
 P.loss_fit_maxstep_um = 1.0;   % 一步最多走多远（um）
@@ -256,12 +256,12 @@ P.qfit_min_improve = 0;        % 要求比当前点至少降低多少(ppm)，可
 % ---------- Step sizes (initial; can tune) ----------
 P.dz_approach = +0.5; % um/step, z-up positive, slower approach
 P.dz_backoff  = +5.0;   % um
-P.duv_coarse  = 2.0;    % um per step
+P.duv_coarse  = 4.0;    % um per step
 P.duv_fine    = 0.5;    % um per step
 % ---------- Loss model scales (set by "how sensitive" loss is) ----------
 % ---------- Loss model in ppm ----------
 % Threshold: 0.12% = 1200 ppm
-P.L_thresh_ppm = 1200;
+P.L_thresh_ppm = 1e5;
 
 % Best achievable loss floor (ppm) near theoretical optimum
 P.L_min = 200;            % ppm (你可以按实际希望的最好水平改，比如 100~300)
