@@ -153,16 +153,26 @@ P.dz_attach_pulse = 0.05;      % um/step, 贴合阶段额外z推进
 P.attach_push_steps = 6;       % 额外推进步数
 P.attach_hold_steps = 12;      % 推进后保持步数
 P.attach_force_tol = 0.15;     % N, final_attach阶段力误差容忍
-% ===== Loss model params (optics-dominant) =====
-P.L_min  = 200;      % ppm best floor
-
-% Sensitivity (reasonable defaults)
-P.Gp_ppm = 2500;     % position misalignment penalty weight
-P.Ga_ppm = 388;      % angle misalignment penalty weight
-P.Gc_ppm = 200;      % mild coupling
-
-% Angle normalization reference (rad)
+% ===== Loss model params =====
+% Legacy empirical model (kept for fallback/ablation)
+P.L_min  = 200;      % ppm best floor (legacy)
+P.Gp_ppm = 2500;     % legacy position penalty
+P.Ga_ppm = 388;      % legacy angle penalty
+P.Gc_ppm = 200;      % legacy coupling
 P.ang_ref_rad = deg2rad(0.02);
+
+% Physical loss model (recommended)
+% L_ppm = 1e6 * (ell0 + ell_clip(rho)), rho from optics aperture offset (dy,dz)
+P.use_physical_loss = true;
+P.L0_ppm = 500;                 % fixed round-trip baseline loss (ppm)
+P.aperture_phys_radius_mm = 0.5; % real aperture radius a (mm)
+% Gaussian mode radii at aperture plane (45 deg astigmatism equivalent)
+P.w_t_mm = 0.395;
+P.w_s_mm = 0.333;
+P.w_eff_mm = sqrt(P.w_t_mm * P.w_s_mm);
+% clip overlap evaluation: "approx_radial" (fast) or "numeric" (integral)
+P.loss_clip_method = "approx_radial";
+P.loss_clip_grid_n = 81;        % used when method="numeric"
 
 % Fixed bias on optics output: [dy(mm); dz(mm); dty(rad); dtz(rad)]
 % Reasonable: position bias ~0.02~0.05 mm if aperture radius ~0.5 mm
@@ -249,7 +259,7 @@ P.duv_fine    = 0.5;    % um per step
 % ---------- Loss model scales (set by "how sensitive" loss is) ----------
 % ---------- Loss model in ppm ----------
 % Threshold: 0.12% = 1200 ppm
-P.L_thresh_ppm = 388;
+P.L_thresh_ppm = 1200;
 
 % Best achievable loss floor (ppm) near theoretical optimum
 P.L_min = 200;            % ppm (你可以按实际希望的最好水平改，比如 100~300)
