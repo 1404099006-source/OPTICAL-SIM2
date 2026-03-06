@@ -75,6 +75,7 @@ P.rug_k   = 2*pi/200; % spatial frequency (1/um)
 % target optimum (ideal alignment)
 P.x_star = [0; 0; 0; 0; 0];
 P.loss_probe_h_um = 2.0;   % 2D扫频半径(um)，1~5都行
+P.loss_probe_grid_n = 5;   % NxN采样网格边长(奇数，建议5或7)
 P.e_guard         = 0.20;  % mm, 损耗阶段允许的最大 ||e||（物理光斑坐标）
 
 % ---- optics init ----

@@ -37,6 +37,7 @@ if ~isfield(P,'k_uv');                P.k_uv         = 1.0; end
 
 % Loss quad-fit params (you said you've added them)
 if ~isfield(P,'loss_probe_h_um');     P.loss_probe_h_um = 2.0; end
+if ~isfield(P,'loss_probe_grid_n');    P.loss_probe_grid_n = 5; end
 if ~isfield(P,'duv_ls_max');          P.duv_ls_max      = 1.0; end
 if ~isfield(P,'e_guard');             P.e_guard         = 0.20; end  % mm
 if ~isfield(P,'ls_lambda');           P.ls_lambda       = 1e-3; end
