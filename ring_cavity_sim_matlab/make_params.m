@@ -18,14 +18,14 @@ end
 if ~isfield(P,'xC_init')
     % Assume initial tilt within ~30 arcsec
     arcsec30 = 30/3600; % deg
-    P.xC_init = [80; -60; -50; deg2rad(arcsec30); -deg2rad(arcsec30)];
+    P.xC_init = [80; -60; -40; deg2rad(arcsec30); -deg2rad(arcsec30)];
 end
 
 % Initial robot-nominal vs lens-true mismatch (x - xr at step 0)
 % [u; v; z; thx; thy] in [um; um; um; rad; rad]
 if ~isfield(P,'Dc_init')
     % small initial robot-vs-lens mismatch: [u; v; z; thx; thy]
-    P.Dc_init = [1.5; -1.0; 0.8; 2e-6; -2e-6];
+    P.Dc_init = [0.8; -0.5; 0.4; 1e-6; -1e-6];
 end
 
 % ===============================
@@ -87,24 +87,24 @@ P.drift_mode = "smooth";  % "smooth" or "jump"
 P.F_touch = 0.1;          % N, contact threshold
 P.kappa_drift = 0.8;      % 1/N, drift saturation speed
 P.drift_rot_only = false; % allow translational + rotational drift
-P.drift_max = [0; 0; 0; 2e-5; -2e-5]; % [um;um;um;rad;rad], max drift
+P.drift_max = [0; 0; 0; 1e-5; -1e-5]; % [um;um;um;rad;rad], max drift
 
 % Smooth drift dynamics (optional)
-P.rho_drift = 0.15;       % update rate in dynamic version
+P.rho_drift = 0.08;       % update rate in dynamic version
 % per-step random walk [u; v; z; thx; thy]
 % translation terms are set to small non-zero values (um) to model free-space
 % repeatability + contact micro-slip induced drift.
-P.sigma_drift_rw = [0.02; 0.02; 0.01; 2e-6; 2e-6];
+P.sigma_drift_rw = [0.008;0.008;0.004;1e-6;1e-6];
 
 % Three-stage drift (A free-space / B critical-contact / C lock+creep)
 P.F_lock = 0.8;             % N, enter lock/pressed stage threshold
-P.drift_peak_scale = 1.0;   % stage-B directional drift peak scale
-P.drift_lock_scale = 0.45;  % stage-C steady directional drift scale
+P.drift_peak_scale = 1.6;   % stage-B directional drift peak scale
+P.drift_lock_scale = 0.25;  % stage-C steady directional drift scale
 P.kappa_lock = 2.0;         % lock-stage transition rate
 P.rw_scale_free = 0.6;      % random drift scale in stage A
-P.rw_scale_peak = 2.0;      % random drift peak scale in stage B
-P.rw_scale_lock = 0.35;     % random drift scale in stage C
-P.creep_rate = 0.03;        % stage-C slow creep toward lock target
+P.rw_scale_peak = 1.2;      % random drift peak scale in stage B
+P.rw_scale_lock = 0.20;     % random drift scale in stage C
+P.creep_rate = 0.015;        % stage-C slow creep toward lock target
 
 % Jump drift parameters (if used)
 P.Fc_mean = 3.0;          % N
@@ -239,7 +239,7 @@ end
 % ---- normalization radii on aperture plane (theoretical) ----
 P.aperture_ry_mm = 2.0;
 P.aperture_rz_mm = 2.0;
-P.e_enter_cont   = 0.4;    % mm, coarse->continuation gate (relaxed for current tuning)
+P.e_enter_cont   = 0.5;    % mm, coarse->continuation gate (relaxed for current tuning)
 P.Juv_step_um    = 1.5;
 P.Juv_lambda     = 5e-4;
 % ===== Loss fine (quadratic fit) =====
@@ -261,7 +261,7 @@ P.duv_fine    = 0.5;    % um per step
 % ---------- Loss model scales (set by "how sensitive" loss is) ----------
 % ---------- Loss model in ppm ----------
 % Threshold: 0.12% = 1200 ppm
-P.L_thresh_ppm = 1e5;
+P.L_thresh_ppm = 5000;
 
 % Best achievable loss floor (ppm) near theoretical optimum
 P.L_min = 200;            % ppm (你可以按实际希望的最好水平改，比如 100~300)
@@ -302,12 +302,12 @@ P.eq_relax = [0.6; 0.6; 0.6];
 P.eq_tol = [1e-4; 1e-7; 1e-7];
 
 % weak uv -> tilt coupling through gripper flexibility [rad/um]
-P.K_uv_to_th = [0, 2e-9; -2e-9, 0];
+P.K_uv_to_th = [0,8e-10;-8e-10,0];
 
 % ===== Friction (stick-slip + Coulomb limit) =====
 P.friction_mode = "distributed"; % "distributed"(partial slip) or "lumped"(legacy)
-P.mu = 0.20;
-P.k_t = 0.30 * P.k_w;   % N/um^3
+P.mu = 0.12;
+P.k_t = 0.18 * P.k_w;   % N/um^3
 P.alpha_fx2fz = 0.0;    % sensor-axis projection coefficients
 P.alpha_fy2fz = 0.0;
 
