@@ -33,7 +33,7 @@ end
 % ===============================
 
 % During loss optimization, keep spot error within this guard
-if ~isfield(P,'e_guard'); P.e_guard = 0.65; end
+if ~isfield(P,'e_guard'); P.e_guard = 0.20; end  % mm, aperture-plane spot centroid guard
 
 % ===============================
 % LS uv controller params
@@ -75,7 +75,7 @@ P.rug_k   = 2*pi/200; % spatial frequency (1/um)
 % target optimum (ideal alignment)
 P.x_star = [0; 0; 0; 0; 0];
 P.loss_probe_h_um = 2.0;   % 2D扫频半径(um)，1~5都行
-P.e_guard         = 1.0;   % 损耗阶段允许的最大 ||e||（放宽/收紧都可）
+P.e_guard         = 0.20;  % mm, 损耗阶段允许的最大 ||e||（物理光斑坐标）
 
 % ---- optics init ----
 P.optics = optics_init_linear(P);
@@ -127,11 +127,13 @@ P.fiber_contact_scale = 3.0;  % noise multiplier in contact before seating
 P.fiber_seated_scale  = 1.0;  % noise multiplier after seating
 
 % ---------- Vision sensor e ----------
-P.vision_sigma = 0.0;  % normalized units (1σ) after normalization
+P.vision_use_normalized = false; % false: e=[dy;dz] in mm (physical); true: legacy normalized
+P.vision_sigma_mm = 0.0;         % mm (1σ) in physical mode
+P.vision_sigma = 0.0;            % legacy field (normalized mode); kept for compatibility
 
 % ---------- Loss fitting sensor (fit success + noise + outliers) ----------
-P.e_ok = 0.8;           % if ||e|| below this, fitting likely succeeds
-P.se_ok = 0.08;         % sigmoid softness for success probability
+P.e_ok = 0.12;          % mm, if ||e|| below this, fitting likely succeeds
+P.se_ok = 0.02;         % mm, sigmoid softness for success probability
 P.K_max = 0.08;         % N/um (example), threshold for "too hard"
 P.sK    = 0.02;
 
@@ -237,13 +239,13 @@ end
 % ---- normalization radii on aperture plane (theoretical) ----
 P.aperture_ry_mm = 2.0;
 P.aperture_rz_mm = 2.0;
-P.e_enter_cont   = 0.25;   % 更严格进入精调阈值
+P.e_enter_cont   = 0.12;   % mm, 进入精调阈值（更严格，避免损耗盲调）
 P.Juv_step_um    = 1.0;
 P.Juv_lambda     = 1e-3;
 % ===== Loss fine (quadratic fit) =====
 P.loss_fit_step_um = 0.8;      % 采样半径 Δ（um），0.5~2um 之间调
 P.loss_fit_maxstep_um = 1.0;   % 一步最多走多远（um）
-P.e_loss_max = 0.8;            % 损耗阶段允许的 ||e|| 上限（无量纲）
+P.e_loss_max = 0.20;           % mm, 损耗阶段允许的 ||e|| 上限（物理坐标）
 P.loss_avg_n = 3;              % 每个点测几次取均值（噪声大就3~5）
 P.qfit_ridge = 1e-6;           % 拟合/求解时的数值正则
 P.qfit_min_improve = 0;        % 要求比当前点至少降低多少(ppm)，可先0

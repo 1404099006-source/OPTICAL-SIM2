@@ -24,7 +24,7 @@ if ~isfield(P,'force_settle_steps');  P.force_settle_steps = 8; end
 if ~isfield(P,'fine_iter_per_level'); P.fine_iter_per_level = 20; end
 if ~isfield(P,'force_targets');       P.force_targets = [0.8 2 4 6 8]; end
 if ~isfield(P,'L_thresh_ppm');        P.L_thresh_ppm = 1200; end
-if ~isfield(P,'e_enter_cont');        P.e_enter_cont = 0.55; end   % 你用光路e时通常要放宽
+if ~isfield(P,'e_enter_cont');        P.e_enter_cont = 0.12; end   % mm, stricter coarse->fine gate
 if ~isfield(P,'min_level_before_exit'); P.min_level_before_exit = numel(P.force_targets); end
 if ~isfield(P,'final_attach_enable');   P.final_attach_enable = true; end
 if ~isfield(P,'dz_attach_pulse');       P.dz_attach_pulse = 0.05; end   % um/step extra push
@@ -38,7 +38,7 @@ if ~isfield(P,'k_uv');                P.k_uv         = 1.0; end
 % Loss quad-fit params (you said you've added them)
 if ~isfield(P,'loss_probe_h_um');     P.loss_probe_h_um = 2.0; end
 if ~isfield(P,'duv_ls_max');          P.duv_ls_max      = 1.0; end
-if ~isfield(P,'e_guard');             P.e_guard         = 1.0; end
+if ~isfield(P,'e_guard');             P.e_guard         = 0.20; end  % mm
 if ~isfield(P,'ls_lambda');           P.ls_lambda       = 1e-3; end
 if ~isfield(P,'ls_gain');             P.ls_gain         = 1.0; end
 
@@ -410,8 +410,8 @@ nexttile;
 plot(idx, log_e(1,idx), 'LineWidth',1.2); hold on; grid on;
 plot(idx, log_e(2,idx), 'LineWidth',1.2);
 plot(idx, vecnorm(log_e(:,idx),2,1), 'LineWidth',1.2);
-xlabel('step'); ylabel('e (normalized)');
-title('Spot/aperture relative error');
+xlabel('step'); ylabel('e (mm)');
+title('Spot centroid error at aperture plane');
 legend({'e_y','e_z','||e||'},'Location','best');
 
 nexttile;
