@@ -110,6 +110,11 @@ log_Ac    = nan(1, P.N);
 log_stick = nan(1, P.N);
 log_slip  = nan(1, P.N);
 
+% fine-search probe cloud (u,v samples from loss_quadfit_uv_step)
+probe_u = [];
+probe_v = [];
+probe_ok = [];
+
 % =============================
 % 3) Mode / counters
 % =============================
@@ -236,9 +241,21 @@ for k = 1:P.N
         % =====================================================
         % 关键：用你写好的 2D 二次拟合 loss_quadfit_uv_step 一步更新 uv
         % =====================================================
-        [duv_cmd, ~] = loss_quadfit_uv_step(Xtrue, state, P, ...
+        [duv_cmd, qfit_info] = loss_quadfit_uv_step(Xtrue, state, P, ...
             P.loss_probe_h_um, P.duv_ls_max, P.e_guard);
         action.duv = duv_cmd;
+
+        % collect sampled probe points for trajectory visualization
+        if isstruct(qfit_info) && isfield(qfit_info,'D') && ~isempty(qfit_info.D)
+            Dk = qfit_info.D;
+            probe_u = [probe_u; Xtrue.x(1) + Dk(:,1)]; %#ok<AGROW>
+            probe_v = [probe_v; Xtrue.x(2) + Dk(:,2)]; %#ok<AGROW>
+            if isfield(qfit_info,'Eok') && numel(qfit_info.Eok)==size(Dk,1)
+                probe_ok = [probe_ok; logical(qfit_info.Eok(:))]; %#ok<AGROW>
+            else
+                probe_ok = [probe_ok; true(size(Dk,1),1)]; %#ok<AGROW>
+            end
+        end
 
         % ---- record discrete fitted loss point (真实扫频点) ----
         [Lnow, oknow, infonow] = sensor_lossfit(Xtrue.x, e, state.Keff, state.seated, P);
@@ -430,11 +447,22 @@ figure('Name','Trajectory','Color','w');
 tiledlayout(1,2,'Padding','compact','TileSpacing','compact');
 
 nexttile; hold on; grid on; axis equal;
+if ~isempty(probe_u)
+    % faded cloud of all fine-search sample points
+    plot(probe_u, probe_v, '.', 'Color', [0.80, 0.80, 0.80], 'MarkerSize', 6);
+    if any(probe_ok)
+        plot(probe_u(probe_ok), probe_v(probe_ok), '.', 'Color', [0.55, 0.70, 1.00], 'MarkerSize', 7);
+    end
+end
 plot(ur, vr, 'LineWidth',1.2);
 plot(u,  v,  'LineWidth',1.2);
 xlabel('u (\mum)'); ylabel('v (\mum)');
-title('In-plane trajectory');
-legend({'commanded (x_r)','true (x)'},'Location','best');
+title('In-plane trajectory + fine-search probe points');
+if ~isempty(probe_u)
+    legend({'probe(all)','probe(valid fit)','commanded (x_r)','true (x)'},'Location','best');
+else
+    legend({'commanded (x_r)','true (x)'},'Location','best');
+end
 
 nexttile;
 scatter3(u, v, z, 14, F, 'filled'); grid on;
