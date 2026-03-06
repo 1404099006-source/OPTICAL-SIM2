@@ -167,7 +167,7 @@ P.ang_ref_rad = deg2rad(0.02);
 % L_ppm = 1e6 * (ell0 + ell_clip(rho)), rho from optics aperture offset (dy,dz)
 P.use_physical_loss = true;
 P.L0_ppm = 500;                 % fixed round-trip baseline loss (ppm)
-P.aperture_phys_radius_mm = 1.0; % real aperture radius a (mm)
+P.aperture_phys_radius_mm = 0.85; % real aperture radius a (mm)
 % Gaussian mode radii at aperture plane (45 deg astigmatism equivalent)
 P.w_t_mm = 0.395;
 P.w_s_mm = 0.333;
@@ -239,7 +239,7 @@ end
 % ---- normalization radii on aperture plane (theoretical) ----
 P.aperture_ry_mm = 2.0;
 P.aperture_rz_mm = 2.0;
-P.e_enter_cont   = 0.5;    % mm, coarse->continuation gate (relaxed for current tuning)
+P.e_enter_cont   = 0.3;    % mm, coarse->continuation gate (relaxed for current tuning)
 P.Juv_step_um    = 1.5;
 P.Juv_lambda     = 5e-4;
 % ===== Loss fine (quadratic fit) =====
@@ -261,7 +261,7 @@ P.duv_fine    = 0.5;    % um per step
 % ---------- Loss model scales (set by "how sensitive" loss is) ----------
 % ---------- Loss model in ppm ----------
 % Threshold: 0.12% = 1200 ppm
-P.L_thresh_ppm = 5000;
+P.L_thresh_ppm = 1200;
 
 % Best achievable loss floor (ppm) near theoretical optimum
 P.L_min = 200;            % ppm (你可以按实际希望的最好水平改，比如 100~300)
@@ -292,7 +292,7 @@ P.g0_um = 0;
 % ===== Compliance / quasi-static equilibrium =====
 % Fz = kz*(z-zr), Mx = kthx*(thx-thxr), My = kthy*(thy-thyr)
 P.c_z = 2.0;            % um/N
-P.c_th = 5e-8;          % rad/(N*um)
+P.c_th = 3e-7;          % rad/(N*um)
 P.k_z = 1/max(P.c_z,1e-12);        % N/um
 P.k_thx = 1/max(P.c_th,1e-18);     % N*um/rad
 P.k_thy = P.k_thx;
