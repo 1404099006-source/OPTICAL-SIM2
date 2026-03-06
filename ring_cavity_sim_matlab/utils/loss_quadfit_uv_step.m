@@ -109,6 +109,7 @@ info.n_valid = nnz(Eok);
 info.L_center = L(1);
 info.D = D;
 info.L = L;
+info.Eok = Eok;
 
 end
 
