@@ -42,6 +42,15 @@ if ~isfield(P,'duv_ls_max');          P.duv_ls_max      = 1.0; end
 if ~isfield(P,'e_guard');             P.e_guard         = 0.20; end  % mm
 if ~isfield(P,'ls_lambda');           P.ls_lambda       = 1e-3; end
 if ~isfield(P,'ls_gain');             P.ls_gain         = 1.0; end
+if ~isfield(P,'tilt_level_enable');       P.tilt_level_enable = true; end
+if ~isfield(P,'tilt_probe_dth');          P.tilt_probe_dth = deg2rad(2/3600); end
+if ~isfield(P,'tilt_step_max');           P.tilt_step_max = deg2rad(4/3600); end
+if ~isfield(P,'tilt_gain');               P.tilt_gain = 0.5; end
+if ~isfield(P,'tilt_lambda');             P.tilt_lambda = 1e-6; end
+if ~isfield(P,'tilt_force_soft');         P.tilt_force_soft = 0.20; end
+if ~isfield(P,'tilt_force_hard');         P.tilt_force_hard = 0.40; end
+if ~isfield(P,'tilt_done_e');             P.tilt_done_e = 0.15; end
+if ~isfield(P,'tilt_max_iter_per_level'); P.tilt_max_iter_per_level = 25; end
 
 % Force-hold gains (z-up)
 if ~isfield(P,'dz_max');  P.dz_max = 0.5; end
@@ -93,6 +102,7 @@ state.slip_ratio  = 0;
 log_x     = nan(5, P.N);
 log_xr    = nan(5, P.N);
 log_duv   = nan(2, P.N);
+log_dth   = nan(2, P.N);
 log_dz    = nan(1, P.N);
 log_F     = nan(1, P.N);
 log_K     = nan(1, P.N);
@@ -126,6 +136,7 @@ level = 1;
 F_target = P.force_targets(level);
 settle_cnt = 0;
 fine_iter  = 0;
+tilt_iter  = 0;
 attach_cnt = 0;
 
 % force controller internal
@@ -138,6 +149,7 @@ force_ctl.intF    = 0;
 for k = 1:P.N
 
     action.duv = [0;0];
+    action.dth = [0;0];
     action.dz  = 0;
     action.do_seat = false;
 
@@ -227,6 +239,34 @@ for k = 1:P.N
         log_psucc(k) = infoS.p_succ;
 
         if settle_cnt >= P.force_settle_steps
+            if P.tilt_level_enable
+                mode = "tilt_level";
+                tilt_iter = 0;
+            else
+                mode = "cont_fine";
+                fine_iter = 0;
+            end
+        end
+
+    elseif mode == "tilt_level"
+
+        % keep force hold active; lock uv and only correct theta
+        [dz_hold, force_ctl] = force_hold_dz_smooth_zup(state.Fz, F_target, P, force_ctl);
+        action.dz = dz_hold;
+        action.duv = [0;0];
+        tilt_iter = tilt_iter + 1;
+
+        [dth_cmd, tinfo] = tilt_level_step_safe(Xtrue.x, e, state.Fz, F_target, P);
+        action.dth = dth_cmd;
+
+        if tinfo.force_hard_hit
+            % hard safety: quickly back off a little and retry
+            action.dth = [0;0];
+            action.dz = max(-P.dz_max, min(P.dz_max, action.dz - 0.15));
+        end
+
+        % exit tilt-level when spot good enough or budget consumed
+        if norm(e) <= P.tilt_done_e || tilt_iter >= P.tilt_max_iter_per_level
             mode = "cont_fine";
             fine_iter = 0;
         end
@@ -336,6 +376,7 @@ for k = 1:P.N
     log_x(:,k) = Xtrue.x;
     log_xr(:,k) = Xtrue.xr;
     log_duv(:,k) = action.duv(:);
+    log_dth(:,k) = action.dth(:);
     log_dz(k) = action.dz;
     log_F(k)   = state.Fz;
     log_K(k)   = state.Keff;
@@ -662,4 +703,71 @@ x2 = x; x2(2) = x2(2) + dv;
 e2 = sensor_vision(x2, P);
 
 J = [ (e1 - e0)/du, (e2 - e0)/dv ];   % 2x2
+end
+
+
+% ==========================================================
+% Local helper: tip/tilt leveling one-step with safe probing (2x2)
+% ==========================================================
+function [dth_cmd, info] = tilt_level_step_safe(x, e, Fz_now, F_target, P)
+if ~isfield(P,'tilt_probe_dth');  P.tilt_probe_dth = deg2rad(2/3600); end
+if ~isfield(P,'tilt_step_max');   P.tilt_step_max  = deg2rad(4/3600); end
+if ~isfield(P,'tilt_gain');       P.tilt_gain      = 0.5; end
+if ~isfield(P,'tilt_lambda');     P.tilt_lambda    = 1e-6; end
+if ~isfield(P,'tilt_force_soft'); P.tilt_force_soft = 0.20; end
+if ~isfield(P,'tilt_force_hard'); P.tilt_force_hard = 0.40; end
+
+h = max(1e-12, P.tilt_probe_dth);
+J = zeros(2,2);
+valid_col = false(1,2);
+force_hard_hit = false;
+
+for j = 1:2
+    xp = x;
+    xm = x;
+    xp(3+j) = xp(3+j) + h;
+    xm(3+j) = xm(3+j) - h;
+
+    [Fp, ~, ~] = force_model(xp, P);
+    [Fm, ~, ~] = force_model(xm, P);
+
+    dp = abs(Fp - F_target);
+    dm = abs(Fm - F_target);
+    if dp > P.tilt_force_hard || dm > P.tilt_force_hard
+        force_hard_hit = true;
+        continue;
+    end
+    if dp > P.tilt_force_soft || dm > P.tilt_force_soft
+        continue;
+    end
+
+    ep = sensor_vision(xp, P);
+    em = sensor_vision(xm, P);
+    J(:,j) = (ep - em) / (2*h);
+    valid_col(j) = true;
+end
+
+if ~all(valid_col)
+    dth_cmd = [0;0];
+    info.force_hard_hit = force_hard_hit;
+    info.valid_cols = valid_col;
+    return;
+end
+
+A = (J.'*J + P.tilt_lambda*eye(2));
+b = (J.'*e);
+dth = -(A \ b);
+dth = P.tilt_gain * dth;
+
+% clamp step for safety
+dth(1) = max(-P.tilt_step_max, min(P.tilt_step_max, dth(1)));
+dth(2) = max(-P.tilt_step_max, min(P.tilt_step_max, dth(2)));
+
+if any(~isfinite(dth))
+    dth = [0;0];
+end
+
+dth_cmd = dth;
+info.force_hard_hit = force_hard_hit;
+info.valid_cols = valid_col;
 end

@@ -40,6 +40,14 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
     % ---------------------------
     duv = action.duv(:);
     dz = action.dz;
+    if isfield(action,'dth')
+        dth = action.dth(:);
+        if numel(dth) ~= 2 || any(~isfinite(dth))
+            dth = [0;0];
+        end
+    else
+        dth = [0;0];
+    end
 
     if isfield(P,'act_enable') && P.act_enable
         if ~isfield(P,'act_bias_uv');  P.act_bias_uv = [0; 0]; end
@@ -53,6 +61,7 @@ function [Xtrue, state] = truth_update(Xtrue, state, action, P)
 
     Xtrue.xr(1:2) = Xtrue.xr(1:2) + duv;
     Xtrue.xr(3)   = Xtrue.xr(3)   + dz;
+    Xtrue.xr(4:5) = Xtrue.xr(4:5) + dth;
 
     % ---------------------------
     % 2) Contact pre-check

@@ -51,6 +51,19 @@ if ~isfield(P,'kF_i');   P.kF_i   = 0.00; end
 if ~isfield(P,'dz_lpf'); P.dz_lpf = 0.90; end
 
 % ===============================
+% Tip/tilt coarse leveling params (2x2 with safe probing)
+% ===============================
+if ~isfield(P,'tilt_level_enable');         P.tilt_level_enable = true; end
+if ~isfield(P,'tilt_probe_dth');            P.tilt_probe_dth = deg2rad(2/3600); end  % rad
+if ~isfield(P,'tilt_step_max');             P.tilt_step_max = deg2rad(4/3600); end   % rad/step
+if ~isfield(P,'tilt_gain');                 P.tilt_gain = 0.5; end
+if ~isfield(P,'tilt_lambda');               P.tilt_lambda = 1e-6; end
+if ~isfield(P,'tilt_force_soft');           P.tilt_force_soft = 0.20; end  % N
+if ~isfield(P,'tilt_force_hard');           P.tilt_force_hard = 0.40; end  % N
+if ~isfield(P,'tilt_done_e');               P.tilt_done_e = 0.15; end      % mm
+if ~isfield(P,'tilt_max_iter_per_level');   P.tilt_max_iter_per_level = 25; end
+
+% ===============================
 % Debug printing (optional)
 % ===============================
 if ~isfield(P,'debug_print_every'); P.debug_print_every = 200; end
