@@ -51,7 +51,8 @@ if ~isfield(P,'tilt_force_soft');         P.tilt_force_soft = 0.20; end
 if ~isfield(P,'tilt_force_hard');         P.tilt_force_hard = 0.40; end
 if ~isfield(P,'tilt_done_e');             P.tilt_done_e = 0.15; end
 if ~isfield(P,'tilt_max_iter_per_level'); P.tilt_max_iter_per_level = 25; end
-if ~isfield(P,'tilt_probe_settle_steps'); P.tilt_probe_settle_steps = 2; end
+if ~isfield(P,'tilt_probe_settle_steps'); P.tilt_probe_settle_steps = 4; end
+if ~isfield(P,'tilt_mode_step_budget');   P.tilt_mode_step_budget = 180; end
 if ~isfield(P,'joint_coarse_enable');     P.joint_coarse_enable = true; end
 if ~isfield(P,'joint_iter_per_level');    P.joint_iter_per_level = 20; end
 if ~isfield(P,'joint_done_e');            P.joint_done_e = 0.08; end
@@ -66,6 +67,7 @@ if ~isfield(P,'joint_lam_thx');           P.joint_lam_thx = 2e-6; end
 if ~isfield(P,'joint_lam_thy');           P.joint_lam_thy = 2e-6; end
 if ~isfield(P,'joint_force_soft');        P.joint_force_soft = 0.20; end
 if ~isfield(P,'joint_force_hard');        P.joint_force_hard = 0.40; end
+if ~isfield(P,'joint_force_predict_scale_min'); P.joint_force_predict_scale_min = 0.10; end
 
 % Force-hold gains (z-up)
 if ~isfield(P,'dz_max');  P.dz_max = 0.5; end
@@ -154,6 +156,7 @@ fine_iter  = 0;
 tilt_iter  = 0;
 joint_iter = 0;
 attach_cnt = 0;
+tilt_mode_steps = 0;
 tilt_probe = init_tilt_probe_state();
 
 % force controller internal
@@ -259,6 +262,7 @@ for k = 1:P.N
             if P.tilt_level_enable
                 mode = "tilt_level";
                 tilt_iter = 0;
+                tilt_mode_steps = 0;
                 tilt_probe = init_tilt_probe_state();
             else
                 mode = "cont_fine";
@@ -272,6 +276,7 @@ for k = 1:P.N
         [dz_hold, force_ctl] = force_hold_dz_smooth_zup(state.Fz, F_target, P, force_ctl);
         action.dz = dz_hold;
         action.duv = [0;0];
+        tilt_mode_steps = tilt_mode_steps + 1;
 
         dF_now = abs(state.Fz - F_target);
         if dF_now > P.tilt_force_hard
@@ -375,6 +380,9 @@ for k = 1:P.N
                 mode = "cont_fine";
                 fine_iter = 0;
             end
+        elseif tilt_mode_steps >= P.tilt_mode_step_budget
+            mode = "cont_fine";
+            fine_iter = 0;
         end
 
     elseif mode == "joint_coarse"
@@ -389,6 +397,10 @@ for k = 1:P.N
             action.dz = max(-P.dz_max, min(P.dz_max, action.dz - 0.15));
         else
             [duv_cmd, dth_cmd] = joint_coarse_step_numeric(Xtrue.x, e, P);
+
+            % predict-step force risk check (cheap safety layer)
+            [duv_cmd, dth_cmd] = joint_force_safe_scale(Xtrue.x, duv_cmd, dth_cmd, F_target, P);
+
             if dF_now > P.joint_force_soft
                 duv_cmd = 0.3 * duv_cmd;
                 dth_cmd = 0.3 * dth_cmd;
@@ -919,4 +931,29 @@ dq(4) = max(-P.joint_dth_max, min(P.joint_dth_max, dq(4)));
 
 duv_cmd = dq(1:2);
 dth_cmd = dq(3:4);
+end
+
+
+function [duv_safe, dth_safe] = joint_force_safe_scale(x, duv_cmd, dth_cmd, F_target, P)
+if ~isfield(P,'joint_force_hard'); P.joint_force_hard = 0.40; end
+if ~isfield(P,'joint_force_predict_scale_min'); P.joint_force_predict_scale_min = 0.10; end
+
+scales = [1.0, 0.6, 0.35, 0.2, P.joint_force_predict_scale_min];
+duv_safe = [0;0];
+dth_safe = [0;0];
+
+for s = scales
+    duv_try = s * duv_cmd;
+    dth_try = s * dth_cmd;
+    x_try = x;
+    x_try(1:2) = x_try(1:2) + duv_try(:);
+    x_try(4:5) = x_try(4:5) + dth_try(:);
+
+    [F_try, ~, ~] = force_model(x_try, P);
+    if abs(F_try - F_target) <= P.joint_force_hard
+        duv_safe = duv_try;
+        dth_safe = dth_try;
+        return;
+    end
+end
 end

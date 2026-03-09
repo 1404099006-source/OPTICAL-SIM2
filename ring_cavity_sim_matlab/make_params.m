@@ -62,7 +62,8 @@ if ~isfield(P,'tilt_force_soft');           P.tilt_force_soft = 0.20; end  % N
 if ~isfield(P,'tilt_force_hard');           P.tilt_force_hard = 0.40; end  % N
 if ~isfield(P,'tilt_done_e');               P.tilt_done_e = 0.15; end      % mm
 if ~isfield(P,'tilt_max_iter_per_level');   P.tilt_max_iter_per_level = 25; end
-if ~isfield(P,'tilt_probe_settle_steps');   P.tilt_probe_settle_steps = 2; end
+if ~isfield(P,'tilt_probe_settle_steps');   P.tilt_probe_settle_steps = 4; end
+if ~isfield(P,'tilt_mode_step_budget');     P.tilt_mode_step_budget = 180; end
 
 % ===============================
 % Joint coarse correction (2x4 Jacobian on [u v thx thy])
@@ -81,6 +82,7 @@ if ~isfield(P,'joint_lam_thx');             P.joint_lam_thx = 2e-6; end
 if ~isfield(P,'joint_lam_thy');             P.joint_lam_thy = 2e-6; end
 if ~isfield(P,'joint_force_soft');          P.joint_force_soft = 0.20; end   % N
 if ~isfield(P,'joint_force_hard');          P.joint_force_hard = 0.40; end   % N
+if ~isfield(P,'joint_force_predict_scale_min'); P.joint_force_predict_scale_min = 0.10; end
 
 % ===============================
 % Debug printing (optional)
