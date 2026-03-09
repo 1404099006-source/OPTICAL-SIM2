@@ -65,6 +65,24 @@ if ~isfield(P,'tilt_max_iter_per_level');   P.tilt_max_iter_per_level = 25; end
 if ~isfield(P,'tilt_probe_settle_steps');   P.tilt_probe_settle_steps = 2; end
 
 % ===============================
+% Joint coarse correction (2x4 Jacobian on [u v thx thy])
+% ===============================
+if ~isfield(P,'joint_coarse_enable');       P.joint_coarse_enable = true; end
+if ~isfield(P,'joint_iter_per_level');      P.joint_iter_per_level = 20; end
+if ~isfield(P,'joint_done_e');              P.joint_done_e = 0.08; end      % mm
+if ~isfield(P,'joint_probe_uv');            P.joint_probe_uv = 1.5; end      % um
+if ~isfield(P,'joint_probe_dth');           P.joint_probe_dth = deg2rad(2/3600); end % rad
+if ~isfield(P,'joint_gain');                P.joint_gain = 0.6; end
+if ~isfield(P,'joint_duv_max');             P.joint_duv_max = 1.0; end       % um/step
+if ~isfield(P,'joint_dth_max');             P.joint_dth_max = deg2rad(3/3600); end % rad/step
+if ~isfield(P,'joint_lam_u');               P.joint_lam_u = 1e-4; end
+if ~isfield(P,'joint_lam_v');               P.joint_lam_v = 1e-4; end
+if ~isfield(P,'joint_lam_thx');             P.joint_lam_thx = 2e-6; end
+if ~isfield(P,'joint_lam_thy');             P.joint_lam_thy = 2e-6; end
+if ~isfield(P,'joint_force_soft');          P.joint_force_soft = 0.20; end   % N
+if ~isfield(P,'joint_force_hard');          P.joint_force_hard = 0.40; end   % N
+
+% ===============================
 % Debug printing (optional)
 % ===============================
 if ~isfield(P,'debug_print_every'); P.debug_print_every = 200; end

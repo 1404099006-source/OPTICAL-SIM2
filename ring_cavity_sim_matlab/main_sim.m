@@ -52,6 +52,20 @@ if ~isfield(P,'tilt_force_hard');         P.tilt_force_hard = 0.40; end
 if ~isfield(P,'tilt_done_e');             P.tilt_done_e = 0.15; end
 if ~isfield(P,'tilt_max_iter_per_level'); P.tilt_max_iter_per_level = 25; end
 if ~isfield(P,'tilt_probe_settle_steps'); P.tilt_probe_settle_steps = 2; end
+if ~isfield(P,'joint_coarse_enable');     P.joint_coarse_enable = true; end
+if ~isfield(P,'joint_iter_per_level');    P.joint_iter_per_level = 20; end
+if ~isfield(P,'joint_done_e');            P.joint_done_e = 0.08; end
+if ~isfield(P,'joint_probe_uv');          P.joint_probe_uv = 1.5; end
+if ~isfield(P,'joint_probe_dth');         P.joint_probe_dth = deg2rad(2/3600); end
+if ~isfield(P,'joint_gain');              P.joint_gain = 0.6; end
+if ~isfield(P,'joint_duv_max');           P.joint_duv_max = 1.0; end
+if ~isfield(P,'joint_dth_max');           P.joint_dth_max = deg2rad(3/3600); end
+if ~isfield(P,'joint_lam_u');             P.joint_lam_u = 1e-4; end
+if ~isfield(P,'joint_lam_v');             P.joint_lam_v = 1e-4; end
+if ~isfield(P,'joint_lam_thx');           P.joint_lam_thx = 2e-6; end
+if ~isfield(P,'joint_lam_thy');           P.joint_lam_thy = 2e-6; end
+if ~isfield(P,'joint_force_soft');        P.joint_force_soft = 0.20; end
+if ~isfield(P,'joint_force_hard');        P.joint_force_hard = 0.40; end
 
 % Force-hold gains (z-up)
 if ~isfield(P,'dz_max');  P.dz_max = 0.5; end
@@ -138,6 +152,7 @@ F_target = P.force_targets(level);
 settle_cnt = 0;
 fine_iter  = 0;
 tilt_iter  = 0;
+joint_iter = 0;
 attach_cnt = 0;
 tilt_probe = init_tilt_probe_state();
 
@@ -353,6 +368,37 @@ for k = 1:P.N
 
         % exit tilt-level when spot good enough or budget consumed
         if norm(e) <= P.tilt_done_e || tilt_iter >= P.tilt_max_iter_per_level
+            if P.joint_coarse_enable
+                mode = "joint_coarse";
+                joint_iter = 0;
+            else
+                mode = "cont_fine";
+                fine_iter = 0;
+            end
+        end
+
+    elseif mode == "joint_coarse"
+
+        [dz_hold, force_ctl] = force_hold_dz_smooth_zup(state.Fz, F_target, P, force_ctl);
+        action.dz = dz_hold;
+
+        dF_now = abs(state.Fz - F_target);
+        if dF_now > P.joint_force_hard
+            action.duv = [0;0];
+            action.dth = [0;0];
+            action.dz = max(-P.dz_max, min(P.dz_max, action.dz - 0.15));
+        else
+            [duv_cmd, dth_cmd] = joint_coarse_step_numeric(Xtrue.x, e, P);
+            if dF_now > P.joint_force_soft
+                duv_cmd = 0.3 * duv_cmd;
+                dth_cmd = 0.3 * dth_cmd;
+            end
+            action.duv = duv_cmd;
+            action.dth = dth_cmd;
+            joint_iter = joint_iter + 1;
+        end
+
+        if norm(e) <= P.joint_done_e || joint_iter >= P.joint_iter_per_level
             mode = "cont_fine";
             fine_iter = 0;
         end
@@ -827,4 +873,50 @@ if any(~isfinite(dth))
     dth = [0;0];
 end
 dth_cmd = dth;
+end
+
+
+% ==========================================================
+% Local helper: joint coarse correction (2x4 on [u v thx thy])
+% ==========================================================
+function [duv_cmd, dth_cmd] = joint_coarse_step_numeric(x, e, P)
+if ~isfield(P,'joint_probe_uv');  P.joint_probe_uv = 1.5; end
+if ~isfield(P,'joint_probe_dth'); P.joint_probe_dth = deg2rad(2/3600); end
+if ~isfield(P,'joint_gain');      P.joint_gain = 0.6; end
+if ~isfield(P,'joint_duv_max');   P.joint_duv_max = 1.0; end
+if ~isfield(P,'joint_dth_max');   P.joint_dth_max = deg2rad(3/3600); end
+if ~isfield(P,'joint_lam_u');     P.joint_lam_u = 1e-4; end
+if ~isfield(P,'joint_lam_v');     P.joint_lam_v = 1e-4; end
+if ~isfield(P,'joint_lam_thx');   P.joint_lam_thx = 2e-6; end
+if ~isfield(P,'joint_lam_thy');   P.joint_lam_thy = 2e-6; end
+
+du = max(1e-9, P.joint_probe_uv);
+dv = max(1e-9, P.joint_probe_uv);
+dtx = max(1e-12, P.joint_probe_dth);
+dty = max(1e-12, P.joint_probe_dth);
+
+e0 = sensor_vision(x, P);
+
+xu = x; xu(1) = xu(1) + du;  eu = sensor_vision(xu, P);
+xv = x; xv(2) = xv(2) + dv;  ev = sensor_vision(xv, P);
+xtx = x; xtx(4) = xtx(4) + dtx; etx = sensor_vision(xtx, P);
+xty = x; xty(5) = xty(5) + dty; ety = sensor_vision(xty, P);
+
+J = [ (eu-e0)/du, (ev-e0)/dv, (etx-e0)/dtx, (ety-e0)/dty ];  % 2x4
+R = diag([P.joint_lam_u, P.joint_lam_v, P.joint_lam_thx, P.joint_lam_thy]);
+
+dq = -((J.'*J + R) \ (J.'*e));
+dq = P.joint_gain * dq;
+
+if any(~isfinite(dq)) || norm(J,'fro') < 1e-12
+    dq = zeros(4,1);
+end
+
+dq(1) = max(-P.joint_duv_max, min(P.joint_duv_max, dq(1)));
+dq(2) = max(-P.joint_duv_max, min(P.joint_duv_max, dq(2)));
+dq(3) = max(-P.joint_dth_max, min(P.joint_dth_max, dq(3)));
+dq(4) = max(-P.joint_dth_max, min(P.joint_dth_max, dq(4)));
+
+duv_cmd = dq(1:2);
+dth_cmd = dq(3:4);
 end
