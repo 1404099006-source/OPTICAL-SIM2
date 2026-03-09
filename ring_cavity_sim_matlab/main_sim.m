@@ -51,6 +51,7 @@ if ~isfield(P,'tilt_force_soft');         P.tilt_force_soft = 0.20; end
 if ~isfield(P,'tilt_force_hard');         P.tilt_force_hard = 0.40; end
 if ~isfield(P,'tilt_done_e');             P.tilt_done_e = 0.15; end
 if ~isfield(P,'tilt_max_iter_per_level'); P.tilt_max_iter_per_level = 25; end
+if ~isfield(P,'tilt_probe_settle_steps'); P.tilt_probe_settle_steps = 2; end
 
 % Force-hold gains (z-up)
 if ~isfield(P,'dz_max');  P.dz_max = 0.5; end
@@ -138,6 +139,7 @@ settle_cnt = 0;
 fine_iter  = 0;
 tilt_iter  = 0;
 attach_cnt = 0;
+tilt_probe = init_tilt_probe_state();
 
 % force controller internal
 force_ctl.dz_bias = 0;
@@ -242,6 +244,7 @@ for k = 1:P.N
             if P.tilt_level_enable
                 mode = "tilt_level";
                 tilt_iter = 0;
+                tilt_probe = init_tilt_probe_state();
             else
                 mode = "cont_fine";
                 fine_iter = 0;
@@ -250,19 +253,102 @@ for k = 1:P.N
 
     elseif mode == "tilt_level"
 
-        % keep force hold active; lock uv and only correct theta
+        % keep force hold active; lock uv and do ONLINE safe probe for theta
         [dz_hold, force_ctl] = force_hold_dz_smooth_zup(state.Fz, F_target, P, force_ctl);
         action.dz = dz_hold;
         action.duv = [0;0];
-        tilt_iter = tilt_iter + 1;
 
-        [dth_cmd, tinfo] = tilt_level_step_safe(Xtrue.x, e, state.Fz, F_target, P);
-        action.dth = dth_cmd;
-
-        if tinfo.force_hard_hit
-            % hard safety: quickly back off a little and retry
+        dF_now = abs(state.Fz - F_target);
+        if dF_now > P.tilt_force_hard
+            % global hard safety in this mode
             action.dth = [0;0];
             action.dz = max(-P.dz_max, min(P.dz_max, action.dz - 0.15));
+            tilt_probe = init_tilt_probe_state();
+        else
+            ax = tilt_probe.axis;
+            h = max(1e-12, P.tilt_probe_dth);
+
+            if tilt_probe.phase == "probe_plus_cmd"
+                action.dth(ax) = +h;
+                tilt_probe.phase = "probe_plus_wait";
+                tilt_probe.wait = 0;
+
+            elseif tilt_probe.phase == "probe_plus_wait"
+                tilt_probe.wait = tilt_probe.wait + 1;
+                if tilt_probe.wait >= P.tilt_probe_settle_steps
+                    dF = abs(state.Fz - F_target);
+                    if dF <= P.tilt_force_soft
+                        tilt_probe.e_plus(:,ax) = e;
+                        tilt_probe.valid_plus(ax) = true;
+                    elseif dF > P.tilt_force_hard
+                        action.dz = max(-P.dz_max, min(P.dz_max, action.dz - 0.15));
+                        tilt_probe = init_tilt_probe_state();
+                    end
+                    if tilt_probe.phase ~= "probe_plus_cmd"
+                        tilt_probe.phase = "return_after_plus_cmd";
+                    end
+                end
+
+            elseif tilt_probe.phase == "return_after_plus_cmd"
+                action.dth(ax) = -h;
+                tilt_probe.phase = "return_after_plus_wait";
+                tilt_probe.wait = 0;
+
+            elseif tilt_probe.phase == "return_after_plus_wait"
+                tilt_probe.wait = tilt_probe.wait + 1;
+                if tilt_probe.wait >= P.tilt_probe_settle_steps
+                    tilt_probe.phase = "probe_minus_cmd";
+                end
+
+            elseif tilt_probe.phase == "probe_minus_cmd"
+                action.dth(ax) = -h;
+                tilt_probe.phase = "probe_minus_wait";
+                tilt_probe.wait = 0;
+
+            elseif tilt_probe.phase == "probe_minus_wait"
+                tilt_probe.wait = tilt_probe.wait + 1;
+                if tilt_probe.wait >= P.tilt_probe_settle_steps
+                    dF = abs(state.Fz - F_target);
+                    if dF <= P.tilt_force_soft
+                        tilt_probe.e_minus(:,ax) = e;
+                        tilt_probe.valid_minus(ax) = true;
+                    elseif dF > P.tilt_force_hard
+                        action.dz = max(-P.dz_max, min(P.dz_max, action.dz - 0.15));
+                        tilt_probe = init_tilt_probe_state();
+                    end
+                    if tilt_probe.phase ~= "probe_plus_cmd"
+                        tilt_probe.phase = "return_after_minus_cmd";
+                    end
+                end
+
+            elseif tilt_probe.phase == "return_after_minus_cmd"
+                action.dth(ax) = +h;
+                tilt_probe.phase = "return_after_minus_wait";
+                tilt_probe.wait = 0;
+
+            elseif tilt_probe.phase == "return_after_minus_wait"
+                tilt_probe.wait = tilt_probe.wait + 1;
+                if tilt_probe.wait >= P.tilt_probe_settle_steps
+                    if tilt_probe.axis < 2
+                        tilt_probe.axis = tilt_probe.axis + 1;
+                        tilt_probe.phase = "probe_plus_cmd";
+                    else
+                        tilt_probe.phase = "solve";
+                    end
+                end
+
+            elseif tilt_probe.phase == "solve"
+                J = nan(2,2);
+                for jj = 1:2
+                    if tilt_probe.valid_plus(jj) && tilt_probe.valid_minus(jj)
+                        J(:,jj) = (tilt_probe.e_plus(:,jj) - tilt_probe.e_minus(:,jj)) / (2*h);
+                    end
+                end
+                dth_cmd = tilt_level_solve_from_J(J, e, P);
+                action.dth = dth_cmd;
+                tilt_iter = tilt_iter + 1;
+                tilt_probe = init_tilt_probe_state();
+            end
         end
 
         % exit tilt-level when spot good enough or budget consumed
@@ -707,50 +793,25 @@ end
 
 
 % ==========================================================
-% Local helper: tip/tilt leveling one-step with safe probing (2x2)
+% Local helpers: online tip/tilt safe probing (2x2)
 % ==========================================================
-function [dth_cmd, info] = tilt_level_step_safe(x, e, Fz_now, F_target, P)
-if ~isfield(P,'tilt_probe_dth');  P.tilt_probe_dth = deg2rad(2/3600); end
-if ~isfield(P,'tilt_step_max');   P.tilt_step_max  = deg2rad(4/3600); end
-if ~isfield(P,'tilt_gain');       P.tilt_gain      = 0.5; end
-if ~isfield(P,'tilt_lambda');     P.tilt_lambda    = 1e-6; end
-if ~isfield(P,'tilt_force_soft'); P.tilt_force_soft = 0.20; end
-if ~isfield(P,'tilt_force_hard'); P.tilt_force_hard = 0.40; end
-
-h = max(1e-12, P.tilt_probe_dth);
-J = zeros(2,2);
-valid_col = false(1,2);
-force_hard_hit = false;
-
-for j = 1:2
-    xp = x;
-    xm = x;
-    xp(3+j) = xp(3+j) + h;
-    xm(3+j) = xm(3+j) - h;
-
-    [Fp, ~, ~] = force_model(xp, P);
-    [Fm, ~, ~] = force_model(xm, P);
-
-    dp = abs(Fp - F_target);
-    dm = abs(Fm - F_target);
-    if dp > P.tilt_force_hard || dm > P.tilt_force_hard
-        force_hard_hit = true;
-        continue;
-    end
-    if dp > P.tilt_force_soft || dm > P.tilt_force_soft
-        continue;
-    end
-
-    ep = sensor_vision(xp, P);
-    em = sensor_vision(xm, P);
-    J(:,j) = (ep - em) / (2*h);
-    valid_col(j) = true;
+function S = init_tilt_probe_state()
+S.axis = 1;
+S.phase = "probe_plus_cmd";
+S.wait = 0;
+S.e_plus = nan(2,2);
+S.e_minus = nan(2,2);
+S.valid_plus = false(1,2);
+S.valid_minus = false(1,2);
 end
 
-if ~all(valid_col)
+function dth_cmd = tilt_level_solve_from_J(J, e, P)
+if ~isfield(P,'tilt_step_max'); P.tilt_step_max = deg2rad(4/3600); end
+if ~isfield(P,'tilt_gain');     P.tilt_gain = 0.5; end
+if ~isfield(P,'tilt_lambda');   P.tilt_lambda = 1e-6; end
+
+if any(~isfinite(J(:))) || rank(J) < 2
     dth_cmd = [0;0];
-    info.force_hard_hit = force_hard_hit;
-    info.valid_cols = valid_col;
     return;
 end
 
@@ -759,15 +820,11 @@ b = (J.'*e);
 dth = -(A \ b);
 dth = P.tilt_gain * dth;
 
-% clamp step for safety
 dth(1) = max(-P.tilt_step_max, min(P.tilt_step_max, dth(1)));
 dth(2) = max(-P.tilt_step_max, min(P.tilt_step_max, dth(2)));
 
 if any(~isfinite(dth))
     dth = [0;0];
 end
-
 dth_cmd = dth;
-info.force_hard_hit = force_hard_hit;
-info.valid_cols = valid_col;
 end

@@ -62,6 +62,7 @@ if ~isfield(P,'tilt_force_soft');           P.tilt_force_soft = 0.20; end  % N
 if ~isfield(P,'tilt_force_hard');           P.tilt_force_hard = 0.40; end  % N
 if ~isfield(P,'tilt_done_e');               P.tilt_done_e = 0.15; end      % mm
 if ~isfield(P,'tilt_max_iter_per_level');   P.tilt_max_iter_per_level = 25; end
+if ~isfield(P,'tilt_probe_settle_steps');   P.tilt_probe_settle_steps = 2; end
 
 % ===============================
 % Debug printing (optional)
