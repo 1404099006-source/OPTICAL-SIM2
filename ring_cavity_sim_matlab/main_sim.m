@@ -138,6 +138,7 @@ log_Fy    = nan(1, P.N);
 log_Ac    = nan(1, P.N);
 log_stick = nan(1, P.N);
 log_slip  = nan(1, P.N);
+log_Ftarget = nan(1, P.N);
 
 % fine-search probe cloud (u,v samples from loss_quadfit_uv_step)
 probe_u = [];
@@ -175,6 +176,7 @@ for k = 1:P.N
     action.do_seat = false;
 
     log_mode(k) = mode;
+    log_Ftarget(k) = F_target;
 
     % --- sensors ---
     e = sensor_vision(Xtrue.x, P);
@@ -565,244 +567,392 @@ fprintf("x_opt  = [%.3f %.3f %.3f %.6g %.6g]\n", x_opt(1),x_opt(2),x_opt(3),x_op
 fprintf("x_loss = [%.3f %.3f %.3f %.6g %.6g]\n\n", x_loss(1),x_loss(2),x_loss(3),x_loss(4),x_loss(5));
 
 % =============================
-% (B) Build deviation signals
+% (B) Build commonly used signals
 % =============================
-X = log_x(:,1:Kend);
+X  = log_x(:,1:Kend);
 Xr = log_xr(:,1:Kend);
-Dev_geo  = X - x_geo;
-Dev_cmd  = X - Xr;
 
-dev5_geo = vecnorm(Dev_geo, 2, 1);
-devuv_geo  = vecnorm(Dev_geo(1:2,:), 2, 1);
+u   = X(1,:);   v   = X(2,:);
+z   = X(3,:);   thx = X(4,:);  thy = X(5,:);
 
-% =============================
-% (C) Plots
-% =============================
-close all;
+ur  = Xr(1,:);  vr  = Xr(2,:);
 
-dec = max(1, floor(Kend/600));
+e_y = log_e(1,1:Kend);
+e_z = log_e(2,1:Kend);
+e_n = vecnorm(log_e(:,1:Kend),2,1);
+
+th_n  = sqrt(thx.^2 + thy.^2);
+dth_n = sqrt(log_dth(1,1:Kend).^2 + log_dth(2,1:Kend).^2);
+duv_n = sqrt(log_duv(1,1:Kend).^2 + log_duv(2,1:Kend).^2);
+
+Dev_cmd = X - Xr;
+dev_uv_cmd = vecnorm(Dev_cmd(1:2,:),2,1);
+dev_th_cmd = vecnorm(Dev_cmd(4:5,:),2,1);
+
+if isfield(P,'Ro_um') && isfield(P,'Ri_um')
+    A_ring = pi * (P.Ro_um^2 - P.Ri_um^2);
+    Ac_ratio = log_Ac(1:Kend) / A_ring;
+else
+    Ac_ratio = nan(1,Kend);
+end
+
+F_target_trace = log_Ftarget(1:Kend);
+
+dec = max(1, floor(Kend/800));
 idx = 1:dec:Kend;
 
-u = X(1,:);  v = X(2,:);  z = X(3,:);  F = log_F(1:Kend);
-ur = Xr(1,:); vr = Xr(2,:); zr = Xr(3,:);
+close all;
 
-% ---- Figure 1: Force + gap ----
-figure('Name','Force & Contact','Color','w');
-tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+% =============================
+% FIGURE 1: Force / target / contact
+% =============================
+figure('Name','Fig1_Force_Target_Contact','Color','w');
+tiledlayout(4,1,'Padding','compact','TileSpacing','compact');
 
-nexttile; plot(idx, log_F(idx), 'LineWidth',1.2); hold on; grid on;
-if any(isfinite(log_Fmeas(1:Kend)))
-    plot(idx, log_Fmeas(idx), '--', 'LineWidth',1.1);
-    legend({'Fz true','Fz meas'}, 'Location','best');
-end
-xlabel('step'); ylabel('Fz (N)'); title('Normal force');
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, log_F(idx), 'LineWidth',1.2);
+plot(idx, F_target_trace(idx), '--', 'LineWidth',1.1);
+ylabel('F_z (N)');
+title('Force tracking');
+legend({'F_z','F_{target}'}, 'Location','best');
 
-nexttile; plot(idx, log_K(idx), 'LineWidth',1.2); grid on;
-xlabel('step'); ylabel('K_{eff}'); title('Effective stiffness');
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, log_K(idx), 'LineWidth',1.2);
+ylabel('K_{eff}');
+title('Effective contact stiffness');
 
-nexttile;
-h1 = plot(idx, log_g(idx), 'LineWidth',1.2); hold on;
-if any(isfinite(log_ggeo(1:Kend)))
-    h2 = plot(idx, log_ggeo(idx), 'LineWidth',1.2);
-    legend([h1 h2], {'g\_signed','g\_geo'}, 'Location','best');
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+if all(~isnan(Ac_ratio))
+    plot(idx, Ac_ratio(idx), 'LineWidth',1.2);
+    ylabel('A_c/A_{ring}');
 else
-    legend(h1, 'g\_signed', 'Location','best');
+    plot(idx, log_Ac(idx), 'LineWidth',1.2);
+    ylabel('A_c');
 end
-xlabel('step'); ylabel('gap (\mum)'); title('Gap signals');
+title('Contact area ratio');
 
-nexttile; plot(idx, z(idx), 'LineWidth',1.2); grid on;
-xlabel('step'); ylabel('z (\mum)'); title('True z position');
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, log_g(idx), 'LineWidth',1.2);
+if any(isfinite(log_ggeo(1:Kend)))
+    plot(idx, log_ggeo(idx), 'LineWidth',1.1);
+    legend({'g_{signed}','g_{geo}'}, 'Location','best');
+end
+yline(0,'--');
+xlabel('step');
+ylabel('gap (\mum)');
+title('Gap evolution');
 
-% ---- Figure 2: Spot/aperture + loss ----
-figure('Name','Optics','Color','w');
+% =============================
+% FIGURE 2: Spot + angle + action
+% =============================
+figure('Name','Fig2_Spot_Angle','Color','w');
+tiledlayout(3,1,'Padding','compact','TileSpacing','compact');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, e_y(idx), 'LineWidth',1.2);
+plot(idx, e_z(idx), 'LineWidth',1.2);
+plot(idx, e_n(idx), 'LineWidth',1.3);
+ylabel('e (mm)');
+title('Spot centroid error');
+legend({'e_y','e_z','||e||'}, 'Location','best');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, thx(idx), 'LineWidth',1.2);
+plot(idx, thy(idx), 'LineWidth',1.2);
+plot(idx, th_n(idx), 'LineWidth',1.3);
+ylabel('\theta (rad)');
+title('Angle evolution');
+legend({'\theta_x','\theta_y','||\theta||'}, 'Location','best');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+yyaxis left; plot(idx, dth_n(idx), 'LineWidth',1.2); ylabel('||d\theta|| (rad)');
+yyaxis right; plot(idx, duv_n(idx), 'LineWidth',1.2); ylabel('||duv|| (\mum)');
+xlabel('step');
+title('Action magnitudes');
+
+% =============================
+% FIGURE 3: Loss curve
+% =============================
+figure('Name','Fig3_Loss','Color','w');
 tiledlayout(2,1,'Padding','compact','TileSpacing','compact');
 
-nexttile;
-plot(idx, log_e(1,idx), 'LineWidth',1.2); hold on; grid on;
-plot(idx, log_e(2,idx), 'LineWidth',1.2);
-plot(idx, vecnorm(log_e(:,idx),2,1), 'LineWidth',1.2);
-xlabel('step'); ylabel('e (mm)');
-title('Spot centroid error at aperture plane');
-legend({'e_y','e_z','||e||'},'Location','best');
-
-nexttile;
-plot(idx, log_Ltrue(idx), 'LineWidth',1.2); grid on; hold on;
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, log_Ltrue(idx), 'LineWidth',1.2);
 fit_idx = find(isfinite(log_Lfit(1:Kend)));
 if ~isempty(fit_idx)
     scatter(fit_idx, log_Lfit(fit_idx), 10, 'filled');
 end
 yline(P.L_thresh_ppm, '--', sprintf('%.0f ppm', P.L_thresh_ppm));
-xlabel('step'); ylabel('Loss (ppm)');
-title('Loss curve (true + fitted samples)');
-legend({'L_{true}','L_{fit}','threshold'},'Location','best');
+ylabel('Loss (ppm)');
+title('Loss evolution');
+legend({'L_{true}','L_{fit}','threshold'}, 'Location','best');
 
-% ---- Figure 3: Robot trajectory vs true ----
-figure('Name','Trajectory','Color','w');
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+yyaxis left;
+plot(idx, e_n(idx), 'LineWidth',1.2);
+ylabel('||e|| (mm)');
+yyaxis right;
+plot(idx, th_n(idx), 'LineWidth',1.2);
+ylabel('||\theta|| (rad)');
+xlabel('step');
+title('Loss bottleneck indicators');
+
+% =============================
+% FIGURE 4: Command vs true mismatch
+% =============================
+figure('Name','Fig4_Command_True_Mismatch','Color','w');
+tiledlayout(3,1,'Padding','compact','TileSpacing','compact');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, dev_uv_cmd(idx), 'LineWidth',1.2);
+ylabel('||\Delta uv|| (\mum)');
+title('UV mismatch: true - commanded');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, dev_th_cmd(idx), 'LineWidth',1.2);
+ylabel('||\Delta \theta|| (rad)');
+title('Angle mismatch: true - commanded');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, Dev_cmd(3,idx), 'LineWidth',1.2);
+xlabel('step');
+ylabel('\Delta z (\mum)');
+title('Z mismatch: true - commanded');
+
+% =============================
+% FIGURE 5: Contact quality
+% =============================
+figure('Name','Fig5_Contact_Quality','Color','w');
+tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+if all(~isnan(Ac_ratio))
+    plot(idx, Ac_ratio(idx), 'LineWidth',1.2);
+    ylabel('A_c/A_{ring}');
+else
+    plot(idx, log_Ac(idx), 'LineWidth',1.2);
+    ylabel('A_c');
+end
+xlabel('step');
+title('Contact area ratio');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, log_K(idx), 'LineWidth',1.2);
+xlabel('step');
+ylabel('K_{eff}');
+title('Contact stiffness');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, hypot(log_Fx(idx), log_Fy(idx)), 'LineWidth',1.2);
+xlabel('step');
+ylabel('||F_t|| (N)');
+title('Tangential friction magnitude');
+
+nexttile; hold on; grid on;
+shade_modes(gca, log_mode(1:Kend));
+plot(idx, log_stick(idx), 'LineWidth',1.2);
+plot(idx, log_slip(idx),  'LineWidth',1.2);
+xlabel('step');
+ylabel('ratio');
+title('Stick / slip ratio');
+legend({'stick','slip'}, 'Location','best');
+
+% =============================
+% FIGURE 6: UV trajectory + fine probe cloud
+% =============================
+figure('Name','Fig6_UV_Trajectory','Color','w');
 tiledlayout(1,2,'Padding','compact','TileSpacing','compact');
 
 nexttile; hold on; grid on; axis equal;
 if ~isempty(probe_u)
-    % faded cloud of all fine-search sample points
-    plot(probe_u, probe_v, '.', 'Color', [0.80, 0.80, 0.80], 'MarkerSize', 6);
+    plot(probe_u, probe_v, '.', 'Color', [0.82 0.82 0.82], 'MarkerSize', 6);
     if any(probe_ok)
-        plot(probe_u(probe_ok), probe_v(probe_ok), '.', 'Color', [0.55, 0.70, 1.00], 'MarkerSize', 7);
+        plot(probe_u(probe_ok), probe_v(probe_ok), '.', 'Color', [0.50 0.70 1.00], 'MarkerSize', 7);
     end
 end
 plot(ur, vr, 'LineWidth',1.2);
 plot(u,  v,  'LineWidth',1.2);
 xlabel('u (\mum)'); ylabel('v (\mum)');
-title('In-plane trajectory + fine-search probe points');
+title('UV trajectory');
 if ~isempty(probe_u)
-    legend({'probe(all)','probe(valid fit)','commanded (x_r)','true (x)'},'Location','best');
+    legend({'fine probe(all)','fine probe(valid)','commanded','true'}, 'Location','best');
 else
-    legend({'commanded (x_r)','true (x)'},'Location','best');
+    legend({'commanded','true'}, 'Location','best');
 end
 
-nexttile;
-scatter3(u, v, z, 14, F, 'filled'); grid on;
-xlabel('u (\mum)'); ylabel('v (\mum)'); zlabel('z (\mum)');
-title('True trajectory (color=Fz)'); cb=colorbar; ylabel(cb,'Fz (N)');
-view(45,25); axis vis3d;
+nexttile; hold on; grid on; axis equal;
+scatter(u, v, 12, e_n, 'filled');
+xlabel('u (\mum)'); ylabel('v (\mum)');
+title('UV trajectory colored by ||e||');
+cb = colorbar; ylabel(cb,'||e|| (mm)');
 
-% ---- Figure 4: Pose error to cavity zero ----
-figure('Name','Pose error to cavity zero','Color','w');
-tiledlayout(3,2,'Padding','compact','TileSpacing','compact');
-
-nexttile; plot(1:Kend, Dev_geo(1,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('u (\mum)'); title('\Delta u to geo(0)');
-
-nexttile; plot(1:Kend, Dev_geo(2,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('v (\mum)'); title('\Delta v to geo(0)');
-
-nexttile; plot(1:Kend, Dev_geo(3,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('z (\mum)'); title('\Delta z to geo(0)');
-
-nexttile; plot(1:Kend, Dev_geo(4,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('\theta_x (rad)'); title('\Delta \theta_x to geo(0)');
-
-nexttile; plot(1:Kend, Dev_geo(5,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('\theta_y (rad)'); title('\Delta \theta_y to geo(0)');
-
-nexttile; plot(1:Kend, dev5_geo, 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('||x - 0||'); title('5DoF norm to geo(0)');
-
-% ---- Figure 5: Commanded vs true mismatch ----
-figure('Name','Command vs true mismatch','Color','w');
-tiledlayout(3,2,'Padding','compact','TileSpacing','compact');
-
-nexttile; plot(1:Kend, Dev_cmd(1,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('\Delta u (\mum)'); title('x - x_r (u)');
-
-nexttile; plot(1:Kend, Dev_cmd(2,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('\Delta v (\mum)'); title('x - x_r (v)');
-
-nexttile; plot(1:Kend, Dev_cmd(3,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('\Delta z (\mum)'); title('x - x_r (z)');
-
-nexttile; plot(1:Kend, Dev_cmd(4,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('\Delta \theta_x (rad)'); title('x - x_r (\theta_x)');
-
-nexttile; plot(1:Kend, Dev_cmd(5,:), 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('\Delta \theta_y (rad)'); title('x - x_r (\theta_y)');
-
-nexttile; plot(1:Kend, devuv_geo, 'LineWidth',1.1); grid on;
-xlabel('step'); ylabel('||[u v]|| (\mum)'); title('UV norm to geo(0)');
-
-
-% ---- Figure 6: Convergence dashboard (key metrics) ----
-figure('Name','Convergence dashboard','Color','w');
-tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
-
-x_star = zeros(5,1);
-if isfield(P,'x_star') && numel(P.x_star)==5
-    x_star = P.x_star(:);
-end
-Dev_star = X - x_star;
-pose_uv_to_star = vecnorm(Dev_star(1:2,:),2,1);
-pose_ang_to_star = vecnorm(Dev_star(4:5,:),2,1);
-
-nexttile;
-plot(1:Kend, F, 'LineWidth',1.2); grid on; hold on;
-yline(P.force_targets(min(level,numel(P.force_targets))), '--');
-xlabel('step'); ylabel('Fz (N)'); title('Force build-up and hold');
-
-nexttile;
-plot(1:Kend, vecnorm(log_e(:,1:Kend),2,1), 'LineWidth',1.2); grid on;
-xlabel('step'); ylabel('||e||'); title('Spot/aperture convergence');
-
-nexttile;
-plot(1:Kend, log_Ltrue(1:Kend), 'LineWidth',1.2); grid on; hold on;
-fit_idx2 = find(isfinite(log_Lfit(1:Kend)));
-if ~isempty(fit_idx2)
-    scatter(fit_idx2, log_Lfit(fit_idx2), 10, 'filled');
-end
-yline(P.L_thresh_ppm, '--', sprintf('%.0f ppm target', P.L_thresh_ppm));
-xlabel('step'); ylabel('Loss (ppm)'); title('Loss convergence');
-
-nexttile;
-yyaxis left;
-plot(1:Kend, pose_uv_to_star, 'LineWidth',1.2); ylabel('||[u,v]-[u*,v*]|| (\mum)');
-yyaxis right;
-plot(1:Kend, pose_ang_to_star, 'LineWidth',1.2); ylabel('||[\theta_x,\theta_y]-[\theta_x^*,\theta_y^*]|| (rad)');
-grid on; xlabel('step');
-title('Pose convergence to target');
-
-% ---- Figure 7: Contact onset zoom (adhesion risk indicator) ----
-k_contact = find(log_F(1:Kend) > 1e-6, 1, 'first');
-if ~isempty(k_contact)
-    w = 80;
-    ks = max(1, k_contact-w):min(Kend, k_contact+w);
-    figure('Name','Contact onset zoom','Color','w');
-    tiledlayout(2,1,'Padding','compact','TileSpacing','compact');
-
-    nexttile;
-    plot(ks, log_F(ks), 'LineWidth',1.2); grid on;
-    xlabel('step'); ylabel('Fz (N)');
-    title(sprintf('Force around first contact (k=%d)', k_contact));
-
-    nexttile;
-    plot(ks, log_g(ks), 'LineWidth',1.2); hold on; grid on;
-    if any(isfinite(log_ggeo(ks)))
-        plot(ks, log_ggeo(ks), 'LineWidth',1.2);
-        legend({'g\_signed','g\_geo'},'Location','best');
+% =============================
+% FIGURE 7: tilt_level zoom (contiguous segments)
+% =============================
+ranges_tilt = mode_contiguous_ranges(log_mode(1:Kend), "tilt_level");
+if ~isempty(ranges_tilt)
+    figure('Name','Fig7_TiltLevel_Zoom','Color','w');
+    tiledlayout(4,1,'Padding','compact','TileSpacing','compact');
+    for rr = 1:size(ranges_tilt,1)
+        ks = ranges_tilt(rr,1):ranges_tilt(rr,2);
+        nexttile(1); hold on; grid on; plot(ks, th_n(ks), 'LineWidth',1.2);
+        nexttile(2); hold on; grid on; plot(ks, dth_n(ks), 'LineWidth',1.2);
+        nexttile(3); hold on; grid on; plot(ks, e_n(ks), 'LineWidth',1.2);
+        nexttile(4); hold on; grid on; plot(ks, log_F(ks)-F_target_trace(ks), 'LineWidth',1.2);
     end
-    yline(0,'--');
-    xlabel('step'); ylabel('gap (\mum)');
-    title('Gap transition near contact');
+    nexttile(1); ylabel('||\theta||'); title('tilt\_level: angle norm');
+    nexttile(2); ylabel('||d\theta||'); title('tilt\_level: angle command norm');
+    nexttile(3); ylabel('||e||'); title('tilt\_level: spot error norm');
+    nexttile(4); yline(0,'--'); xlabel('step'); ylabel('F_z-F_{target}'); title('tilt\_level: force deviation');
 end
 
+% =============================
+% FIGURE 8: joint_coarse zoom (contiguous segments)
+% =============================
+ranges_joint = mode_contiguous_ranges(log_mode(1:Kend), "joint_coarse");
+if ~isempty(ranges_joint)
+    figure('Name','Fig8_JointCoarse_Zoom','Color','w');
+    tiledlayout(4,1,'Padding','compact','TileSpacing','compact');
+    for rr = 1:size(ranges_joint,1)
+        ks = ranges_joint(rr,1):ranges_joint(rr,2);
+        nexttile(1); hold on; grid on; plot(ks, duv_n(ks), 'LineWidth',1.2);
+        nexttile(2); hold on; grid on; plot(ks, dth_n(ks), 'LineWidth',1.2);
+        nexttile(3); hold on; grid on; plot(ks, e_n(ks), 'LineWidth',1.2);
+        nexttile(4); hold on; grid on; plot(ks, log_F(ks)-F_target_trace(ks), 'LineWidth',1.2);
+    end
+    nexttile(1); ylabel('||duv||'); title('joint\_coarse: uv command norm');
+    nexttile(2); ylabel('||d\theta||'); title('joint\_coarse: angle command norm');
+    nexttile(3); ylabel('||e||'); title('joint\_coarse: spot error norm');
+    nexttile(4); yline(0,'--'); xlabel('step'); ylabel('F_z-F_{target}'); title('joint\_coarse: force deviation');
+end
 
-% ---- Figure 8: Friction & contact area ----
-figure('Name','Friction and contact area','Color','w');
+% =============================
+% FIGURE 9: mode-by-mode improvement summary (segmented)
+% =============================
+figure('Name','Fig9_Mode_Improvement','Color','w');
+mode_list = ["coarse","tilt_level","joint_coarse","cont_fine"];
+[delta_e, delta_th, delta_L] = mode_improvement_stats_segmented(log_mode(1:Kend), e_n, th_n, log_Ltrue(1:Kend), mode_list);
+
+tiledlayout(3,1,'Padding','compact','TileSpacing','compact');
+nexttile; bar(categorical(cellstr(mode_list)), delta_e); grid on; ylabel('\Delta ||e||'); title('Mode-wise avg. spot improvement');
+nexttile; bar(categorical(cellstr(mode_list)), delta_th); grid on; ylabel('\Delta ||\theta||'); title('Mode-wise avg. angle improvement');
+nexttile; bar(categorical(cellstr(mode_list)), delta_L); grid on; ylabel('\Delta L_{true} (ppm)'); title('Mode-wise avg. loss improvement');
+
+% =============================
+% FIGURE 10: mechanism scatter plots
+% =============================
+figure('Name','Fig10_Mechanism_Scatters','Color','w');
 tiledlayout(2,2,'Padding','compact','TileSpacing','compact');
 
-nexttile;
-plot(idx, log_Ac(idx), 'LineWidth',1.2); grid on;
-if isfield(P,'Ro_um') && isfield(P,'Ri_um')
-    A_ring = pi * (P.Ro_um^2 - P.Ri_um^2);
-    hold on;
-    plot(idx, log_Ac(idx)/A_ring, '--', 'LineWidth',1.1);
-    legend({'A_c (um^2)','A_c/A_{ring}'}, 'Location','best');
-end
-xlabel('step'); ylabel('Area'); title('Contact area evolution');
+nexttile; hold on; grid on;
+scatter(th_n, e_n, 12, 1:Kend, 'filled');
+xlabel('||\theta|| (rad)'); ylabel('||e|| (mm)'); title('\theta \rightarrow e'); cb = colorbar; ylabel(cb,'step');
 
-nexttile;
-plot(idx, log_Fx(idx), 'LineWidth',1.2); hold on; grid on;
-plot(idx, log_Fy(idx), 'LineWidth',1.2);
-xlabel('step'); ylabel('Force (N)'); title('Tangential friction force');
-legend({'F_x','F_y'}, 'Location','best');
+nexttile; hold on; grid on;
+scatter(e_n, log_Ltrue(1:Kend), 12, 1:Kend, 'filled');
+xlabel('||e|| (mm)'); ylabel('L_{true} (ppm)'); title('e \rightarrow loss'); cb = colorbar; ylabel(cb,'step');
 
-nexttile;
-plot(idx, hypot(log_Fx(idx), log_Fy(idx)), 'LineWidth',1.2); grid on;
-xlabel('step'); ylabel('||F_t|| (N)'); title('Tangential force magnitude');
+nexttile; hold on; grid on;
+scatter(th_n, log_Ltrue(1:Kend), 12, 1:Kend, 'filled');
+xlabel('||\theta|| (rad)'); ylabel('L_{true} (ppm)'); title('\theta \rightarrow loss'); cb = colorbar; ylabel(cb,'step');
 
-nexttile;
-plot(idx, log_stick(idx), 'LineWidth',1.2); hold on; grid on;
-plot(idx, log_slip(idx), 'LineWidth',1.2);
-xlabel('step'); ylabel('ratio'); title('Local stick/slip ratio');
-legend({'stick ratio','slip ratio'}, 'Location','best');
+nexttile; hold on; grid on;
+scatter(dth_n, e_n, 12, 1:Kend, 'filled');
+xlabel('||d\theta|| (rad)'); ylabel('||e|| (mm)'); title('action vs residual spot'); cb = colorbar; ylabel(cb,'step');
 
 end % ===== end main_sim =====
+
+
+% ==========================================================
+% Plot helpers
+% ==========================================================
+function shade_modes(ax, mode_vec)
+hold(ax,'on');
+K = numel(mode_vec);
+if K < 1, return; end
+
+mode_colors = containers.Map;
+mode_colors('approach')     = [0.95 0.95 0.95];
+mode_colors('seat')         = [0.90 0.95 1.00];
+mode_colors('coarse')       = [1.00 0.96 0.88];
+mode_colors('cont_settle')  = [0.92 1.00 0.92];
+mode_colors('tilt_level')   = [0.90 0.95 1.00];
+mode_colors('joint_coarse') = [0.96 0.90 1.00];
+mode_colors('cont_fine')    = [1.00 0.92 0.92];
+mode_colors('final_attach') = [0.95 0.90 0.90];
+
+yl = ylim(ax);
+s = 1;
+while s <= K
+    m = mode_vec(s);
+    t = s;
+    while t <= K && mode_vec(t) == m
+        t = t + 1;
+    end
+    x0 = s;
+    x1 = t - 1;
+    key = char(m);
+    if isKey(mode_colors, key)
+        c = mode_colors(key);
+    else
+        c = [0.95 0.95 0.95];
+    end
+    patch(ax, [x0 x1 x1 x0], [yl(1) yl(1) yl(2) yl(2)], c, ...
+        'FaceAlpha', 0.10, 'EdgeColor','none', 'HandleVisibility','off');
+    s = t;
+end
+ylim(ax, yl);
+end
+
+function ranges = mode_contiguous_ranges(mode_vec, target_mode)
+idx = find(mode_vec == target_mode);
+if isempty(idx)
+    ranges = zeros(0,2);
+    return;
+end
+breaks = find(diff(idx) > 1);
+starts = idx([1, breaks + 1]);
+ends = idx([breaks, numel(idx)]);
+ranges = [starts(:), ends(:)];
+end
+
+function [delta_e, delta_th, delta_L] = mode_improvement_stats_segmented(mode_vec, e_n, th_n, L_true, mode_list)
+nm = numel(mode_list);
+delta_e  = zeros(1,nm);
+delta_th = zeros(1,nm);
+delta_L  = zeros(1,nm);
+for i = 1:nm
+    ranges = mode_contiguous_ranges(mode_vec, mode_list(i));
+    if isempty(ranges), continue; end
+    de = nan(size(ranges,1),1);
+    dth = nan(size(ranges,1),1);
+    dL = nan(size(ranges,1),1);
+    for r = 1:size(ranges,1)
+        i0 = ranges(r,1); i1 = ranges(r,2);
+        de(r) = e_n(i0) - e_n(i1);
+        dth(r) = th_n(i0) - th_n(i1);
+        dL(r) = L_true(i0) - L_true(i1);
+    end
+    delta_e(i) = mean(de,'omitnan');
+    delta_th(i) = mean(dth,'omitnan');
+    delta_L(i) = mean(dL,'omitnan');
+end
+end
 
 
 % ==========================================================
