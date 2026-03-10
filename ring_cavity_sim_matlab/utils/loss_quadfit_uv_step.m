@@ -1,14 +1,14 @@
 function [duv_cmd, info] = loss_quadfit_uv_step(Xtrue, state, P, h_um, duv_max, e_guard)
 %LOSS_QUADFIT_UV_STEP  2D quadratic fit step for loss minimization in (u,v).
-% Samples loss at a 3x3 stencil around current (u,v), fits
+% Samples loss at an N x N stencil around current (u,v), fits
 %   L(u,v) = a*u^2 + b*v^2 + c*u*v + d*u + e*v + f
 % then takes one damped Newton/LS step toward the minimizer.
 %
 % Inputs:
 %   Xtrue.x : current pose [u v z thx thy] (um, um, um, rad, rad)
 %   state   : struct with Keff, seated (used by sensor_lossfit)
-%   P       : params (needs P.ls_lambda, P.ls_gain, optionally P.fit_always_ok)
-%   h_um    : probe step in um (e.g. 1~5)
+%   P       : params (needs P.ls_lambda, P.ls_gain; optional P.loss_probe_grid_n)
+%   h_um    : probe spacing in um (e.g. 1~5)
 %   duv_max : clamp per-axis command (um)
 %   e_guard : max allowed ||e|| during loss step (keep beam roughly in FOV)
 %
@@ -22,25 +22,23 @@ if nargin < 6 || isempty(e_guard); e_guard = inf; end
 
 if ~isfield(P,'ls_lambda'); P.ls_lambda = 1e-3; end
 if ~isfield(P,'ls_gain');   P.ls_gain   = 1.0; end
+if ~isfield(P,'loss_probe_grid_n'); P.loss_probe_grid_n = 5; end
+
+grid_n = max(3, round(P.loss_probe_grid_n));
+if mod(grid_n,2) == 0
+    grid_n = grid_n + 1; % keep odd so center exists
+end
 
 x0 = Xtrue.x(:);
 u0 = x0(1);
 v0 = x0(2);
 
-% -------- 1) 3x3 stencil points (du,dv) --------
-D = [  0   0;
-       h_um 0;
-      -h_um 0;
-       0   h_um;
-       0  -h_um;
-       h_um h_um;
-       h_um -h_um;
-      -h_um h_um;
-      -h_um -h_um ];
-
+% -------- 1) N x N stencil points (du,dv), center first --------
+D = build_probe_offsets(h_um, grid_n);
 n = size(D,1);
 L = nan(n,1);
 Eok = false(n,1);
+center_idx = 1;
 
 % -------- 2) sample loss at each point --------
 for i = 1:n
@@ -60,11 +58,17 @@ for i = 1:n
     end
 end
 
+info.D = D;
+info.L = L;
+info.Eok = Eok;
+info.n_valid = nnz(Eok);
+info.L_center = L(center_idx);
+info.used_fallback = false;
+
 % If too few valid points, fallback to e-based LS step (safe)
 if nnz(Eok) < 6
     duv_cmd = fallback_uv_from_e(x0, P, duv_max);
     info.used_fallback = true;
-    info.n_valid = nnz(Eok);
     return;
 end
 
@@ -76,7 +80,8 @@ L2 = L(Eok);
 % L(du,dv)= a*du^2 + b*dv^2 + c*du*dv + d*du + e*dv + f
 A = [ D2(:,1).^2, D2(:,2).^2, D2(:,1).*D2(:,2), D2(:,1), D2(:,2), ones(size(D2,1),1) ];
 coef = A \ L2;   % least squares
-a = coef(1); b = coef(2); c = coef(3); d = coef(4); e = coef(5); f = coef(6);
+
+a = coef(1); b = coef(2); c = coef(3); d = coef(4); e = coef(5);
 
 % -------- 4) solve for minimizer of quadratic (damped) --------
 % grad = [2a*du + c*dv + d; c*du + 2b*dv + e] = 0
@@ -92,7 +97,6 @@ duv_star = - (H_d \ g);          % local optimal step in (du,dv)
 % Apply gain and clamp
 duv = P.ls_gain * duv_star;
 duv_cmd = duv;
-
 duv_cmd(1) = max(-duv_max, min(duv_max, duv_cmd(1)));
 duv_cmd(2) = max(-duv_max, min(duv_max, duv_cmd(2)));
 
@@ -100,16 +104,21 @@ duv_cmd(2) = max(-duv_max, min(duv_max, duv_cmd(2)));
 if any(~isfinite(duv_cmd))
     duv_cmd = fallback_uv_from_e(x0, P, duv_max);
     info.used_fallback = true;
-else
-    info.used_fallback = false;
 end
 
 info.coef = coef;
-info.n_valid = nnz(Eok);
-info.L_center = L(1);
-info.D = D;
-info.L = L;
+end
 
+
+function D = build_probe_offsets(h_um, grid_n)
+% Build odd N x N local offsets with center [0,0] as first row.
+m = floor(grid_n/2);
+vals = (-m:m) * h_um;
+[Du, Dv] = meshgrid(vals, vals);
+Dall = [Du(:), Dv(:)];
+
+center_mask = (abs(Dall(:,1)) < 1e-12) & (abs(Dall(:,2)) < 1e-12);
+D = [0, 0; Dall(~center_mask,:)];
 end
 
 
