@@ -138,7 +138,6 @@ log_Fy    = nan(1, P.N);
 log_Ac    = nan(1, P.N);
 log_stick = nan(1, P.N);
 log_slip  = nan(1, P.N);
-log_Ftarget = nan(1, P.N);
 
 % fine-search probe cloud (u,v samples from loss_quadfit_uv_step)
 probe_u = [];
@@ -176,7 +175,6 @@ for k = 1:P.N
     action.do_seat = false;
 
     log_mode(k) = mode;
-    log_Ftarget(k) = F_target;
 
     % --- sensors ---
     e = sensor_vision(Xtrue.x, P);
@@ -596,7 +594,7 @@ else
     Ac_ratio = nan(1,Kend);
 end
 
-F_target_trace = log_Ftarget(1:Kend);
+F_target_trace = build_force_target_trace(log_mode(1:Kend), P.force_targets);
 
 dec = max(1, floor(Kend/800));
 idx = 1:dec:Kend;
@@ -672,10 +670,12 @@ legend({'\theta_x','\theta_y','||\theta||'}, 'Location','best');
 
 nexttile; hold on; grid on;
 shade_modes(gca, log_mode(1:Kend));
-yyaxis left; plot(idx, dth_n(idx), 'LineWidth',1.2); ylabel('||d\theta|| (rad)');
-yyaxis right; plot(idx, duv_n(idx), 'LineWidth',1.2); ylabel('||duv|| (\mum)');
+plot(idx, dth_n(idx), 'LineWidth',1.2);
+plot(idx, duv_n(idx), 'LineWidth',1.2);
 xlabel('step');
+ylabel('action size');
 title('Action magnitudes');
+legend({'||d\theta||','||duv||'}, 'Location','best');
 
 % =============================
 % FIGURE 3: Loss curve
@@ -802,51 +802,86 @@ title('UV trajectory colored by ||e||');
 cb = colorbar; ylabel(cb,'||e|| (mm)');
 
 % =============================
-% FIGURE 7: tilt_level zoom (contiguous segments)
+% FIGURE 7: tilt_level zoom
 % =============================
-ranges_tilt = mode_contiguous_ranges(log_mode(1:Kend), "tilt_level");
-if ~isempty(ranges_tilt)
+idx_tilt = find(log_mode(1:Kend)=="tilt_level");
+if ~isempty(idx_tilt)
+    ks = idx_tilt(1):idx_tilt(end);
+
     figure('Name','Fig7_TiltLevel_Zoom','Color','w');
     tiledlayout(4,1,'Padding','compact','TileSpacing','compact');
-    for rr = 1:size(ranges_tilt,1)
-        ks = ranges_tilt(rr,1):ranges_tilt(rr,2);
-        nexttile(1); hold on; grid on; plot(ks, th_n(ks), 'LineWidth',1.2);
-        nexttile(2); hold on; grid on; plot(ks, dth_n(ks), 'LineWidth',1.2);
-        nexttile(3); hold on; grid on; plot(ks, e_n(ks), 'LineWidth',1.2);
-        nexttile(4); hold on; grid on; plot(ks, log_F(ks)-F_target_trace(ks), 'LineWidth',1.2);
-    end
-    nexttile(1); ylabel('||\theta||'); title('tilt\_level: angle norm');
-    nexttile(2); ylabel('||d\theta||'); title('tilt\_level: angle command norm');
-    nexttile(3); ylabel('||e||'); title('tilt\_level: spot error norm');
-    nexttile(4); yline(0,'--'); xlabel('step'); ylabel('F_z-F_{target}'); title('tilt\_level: force deviation');
+
+    nexttile; hold on; grid on;
+    plot(ks, thx(ks), 'LineWidth',1.2);
+    plot(ks, thy(ks), 'LineWidth',1.2);
+    plot(ks, th_n(ks), 'LineWidth',1.3);
+    ylabel('\theta');
+    title('tilt\_level: angle response');
+    legend({'\theta_x','\theta_y','||\theta||'}, 'Location','best');
+
+    nexttile; hold on; grid on;
+    plot(ks, log_dth(1,ks), 'LineWidth',1.2);
+    plot(ks, log_dth(2,ks), 'LineWidth',1.2);
+    ylabel('d\theta');
+    title('tilt\_level: angle commands');
+    legend({'d\theta_x','d\theta_y'}, 'Location','best');
+
+    nexttile; hold on; grid on;
+    plot(ks, e_n(ks), 'LineWidth',1.2);
+    ylabel('||e||');
+    title('tilt\_level: spot error');
+
+    nexttile; hold on; grid on;
+    plot(ks, log_F(ks) - F_target_trace(ks), 'LineWidth',1.2);
+    yline(0,'--');
+    xlabel('step');
+    ylabel('F_z-F_{target}');
+    title('tilt\_level: force deviation');
 end
 
 % =============================
-% FIGURE 8: joint_coarse zoom (contiguous segments)
+% FIGURE 8: joint_coarse zoom
 % =============================
-ranges_joint = mode_contiguous_ranges(log_mode(1:Kend), "joint_coarse");
-if ~isempty(ranges_joint)
+idx_joint = find(log_mode(1:Kend)=="joint_coarse");
+if ~isempty(idx_joint)
+    ks = idx_joint(1):idx_joint(end);
+
     figure('Name','Fig8_JointCoarse_Zoom','Color','w');
     tiledlayout(4,1,'Padding','compact','TileSpacing','compact');
-    for rr = 1:size(ranges_joint,1)
-        ks = ranges_joint(rr,1):ranges_joint(rr,2);
-        nexttile(1); hold on; grid on; plot(ks, duv_n(ks), 'LineWidth',1.2);
-        nexttile(2); hold on; grid on; plot(ks, dth_n(ks), 'LineWidth',1.2);
-        nexttile(3); hold on; grid on; plot(ks, e_n(ks), 'LineWidth',1.2);
-        nexttile(4); hold on; grid on; plot(ks, log_F(ks)-F_target_trace(ks), 'LineWidth',1.2);
-    end
-    nexttile(1); ylabel('||duv||'); title('joint\_coarse: uv command norm');
-    nexttile(2); ylabel('||d\theta||'); title('joint\_coarse: angle command norm');
-    nexttile(3); ylabel('||e||'); title('joint\_coarse: spot error norm');
-    nexttile(4); yline(0,'--'); xlabel('step'); ylabel('F_z-F_{target}'); title('joint\_coarse: force deviation');
+
+    nexttile; hold on; grid on;
+    plot(ks, log_duv(1,ks), 'LineWidth',1.2);
+    plot(ks, log_duv(2,ks), 'LineWidth',1.2);
+    ylabel('duv');
+    title('joint\_coarse: uv commands');
+    legend({'du','dv'}, 'Location','best');
+
+    nexttile; hold on; grid on;
+    plot(ks, log_dth(1,ks), 'LineWidth',1.2);
+    plot(ks, log_dth(2,ks), 'LineWidth',1.2);
+    ylabel('d\theta');
+    title('joint\_coarse: angle commands');
+    legend({'d\theta_x','d\theta_y'}, 'Location','best');
+
+    nexttile; hold on; grid on;
+    plot(ks, e_n(ks), 'LineWidth',1.2);
+    ylabel('||e||');
+    title('joint\_coarse: spot error');
+
+    nexttile; hold on; grid on;
+    plot(ks, log_F(ks) - F_target_trace(ks), 'LineWidth',1.2);
+    yline(0,'--');
+    xlabel('step');
+    ylabel('F_z-F_{target}');
+    title('joint\_coarse: force deviation');
 end
 
 % =============================
-% FIGURE 9: mode-by-mode improvement summary (segmented)
+% FIGURE 9: mode-by-mode improvement summary
 % =============================
 figure('Name','Fig9_Mode_Improvement','Color','w');
 mode_list = ["coarse","tilt_level","joint_coarse","cont_fine"];
-[delta_e, delta_th, delta_L] = mode_improvement_stats_segmented(log_mode(1:Kend), e_n, th_n, log_Ltrue(1:Kend), mode_list);
+[delta_e, delta_th, delta_L] = mode_improvement_stats(log_mode(1:Kend), e_n, th_n, log_Ltrue(1:Kend), mode_list);
 
 tiledlayout(3,1,'Padding','compact','TileSpacing','compact');
 nexttile; bar(categorical(cellstr(mode_list)), delta_e); grid on; ylabel('\Delta ||e||'); title('Mode-wise avg. spot improvement');
@@ -881,6 +916,26 @@ end % ===== end main_sim =====
 % ==========================================================
 % Plot helpers
 % ==========================================================
+function F_target_trace = build_force_target_trace(mode_vec, force_targets)
+K = numel(mode_vec);
+F_target_trace = nan(1,K);
+
+curr_level = 1;
+curr_target = force_targets(curr_level);
+
+for kk = 1:K
+    F_target_trace(kk) = curr_target;
+    if kk < K
+        if kk>1 && mode_vec(kk)=="cont_settle" && mode_vec(kk-1)=="cont_fine"
+            if curr_level < numel(force_targets)
+                curr_level = curr_level + 1;
+                curr_target = force_targets(curr_level);
+            end
+        end
+    end
+end
+end
+
 function shade_modes(ax, mode_vec)
 hold(ax,'on');
 K = numel(mode_vec);
@@ -919,38 +974,25 @@ end
 ylim(ax, yl);
 end
 
-function ranges = mode_contiguous_ranges(mode_vec, target_mode)
-idx = find(mode_vec == target_mode);
-if isempty(idx)
-    ranges = zeros(0,2);
-    return;
-end
-breaks = find(diff(idx) > 1);
-starts = idx([1, breaks + 1]);
-ends = idx([breaks, numel(idx)]);
-ranges = [starts(:), ends(:)];
-end
 
-function [delta_e, delta_th, delta_L] = mode_improvement_stats_segmented(mode_vec, e_n, th_n, L_true, mode_list)
+function [delta_e, delta_th, delta_L] = mode_improvement_stats(mode_vec, e_n, th_n, L_true, mode_list)
 nm = numel(mode_list);
 delta_e  = zeros(1,nm);
 delta_th = zeros(1,nm);
 delta_L  = zeros(1,nm);
+
 for i = 1:nm
-    ranges = mode_contiguous_ranges(mode_vec, mode_list(i));
-    if isempty(ranges), continue; end
-    de = nan(size(ranges,1),1);
-    dth = nan(size(ranges,1),1);
-    dL = nan(size(ranges,1),1);
-    for r = 1:size(ranges,1)
-        i0 = ranges(r,1); i1 = ranges(r,2);
-        de(r) = e_n(i0) - e_n(i1);
-        dth(r) = th_n(i0) - th_n(i1);
-        dL(r) = L_true(i0) - L_true(i1);
+    m = mode_list(i);
+    idx = find(mode_vec == m);
+    if isempty(idx)
+        continue;
     end
-    delta_e(i) = mean(de,'omitnan');
-    delta_th(i) = mean(dth,'omitnan');
-    delta_L(i) = mean(dL,'omitnan');
+    i0 = idx(1);
+    i1 = idx(end);
+
+    delta_e(i)  = e_n(i0)    - e_n(i1);
+    delta_th(i) = th_n(i0)   - th_n(i1);
+    delta_L(i)  = L_true(i0) - L_true(i1);
 end
 end
 
