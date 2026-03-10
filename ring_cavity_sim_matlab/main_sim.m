@@ -47,6 +47,7 @@ if ~isfield(P,'tilt_probe_dth');          P.tilt_probe_dth = deg2rad(2/3600); en
 if ~isfield(P,'tilt_step_max');           P.tilt_step_max = deg2rad(4/3600); end
 if ~isfield(P,'tilt_gain');               P.tilt_gain = 0.5; end
 if ~isfield(P,'tilt_lambda');             P.tilt_lambda = 1e-6; end
+if ~isfield(P,'tilt_rcond_min');          P.tilt_rcond_min = 1e-10; end
 if ~isfield(P,'tilt_force_soft');         P.tilt_force_soft = 0.20; end
 if ~isfield(P,'tilt_force_hard');         P.tilt_force_hard = 0.40; end
 if ~isfield(P,'tilt_done_e');             P.tilt_done_e = 0.15; end
@@ -874,6 +875,7 @@ function dth_cmd = tilt_level_solve_from_J(J, e, P)
 if ~isfield(P,'tilt_step_max'); P.tilt_step_max = deg2rad(4/3600); end
 if ~isfield(P,'tilt_gain');     P.tilt_gain = 0.5; end
 if ~isfield(P,'tilt_lambda');   P.tilt_lambda = 1e-6; end
+if ~isfield(P,'tilt_rcond_min'); P.tilt_rcond_min = 1e-10; end
 
 if any(~isfinite(J(:)))
     dth_cmd = [0;0];
@@ -881,7 +883,7 @@ if any(~isfinite(J(:)))
 end
 
 A = (J.'*J + P.tilt_lambda*eye(2));
-if rcond(A) < 1e-10
+if rcond(A) < P.tilt_rcond_min
     dth_cmd = [0;0];
     return;
 end
