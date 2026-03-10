@@ -381,8 +381,13 @@ for k = 1:P.N
                 fine_iter = 0;
             end
         elseif tilt_mode_steps >= P.tilt_mode_step_budget
-            mode = "cont_fine";
-            fine_iter = 0;
+            if P.joint_coarse_enable
+                mode = "joint_coarse";
+                joint_iter = 0;
+            else
+                mode = "cont_fine";
+                fine_iter = 0;
+            end
         end
 
     elseif mode == "joint_coarse"
@@ -407,7 +412,9 @@ for k = 1:P.N
             end
             action.duv = duv_cmd;
             action.dth = dth_cmd;
-            joint_iter = joint_iter + 1;
+            if norm([duv_cmd; dth_cmd]) > 1e-12
+                joint_iter = joint_iter + 1;
+            end
         end
 
         if norm(e) <= P.joint_done_e || joint_iter >= P.joint_iter_per_level
@@ -868,12 +875,16 @@ if ~isfield(P,'tilt_step_max'); P.tilt_step_max = deg2rad(4/3600); end
 if ~isfield(P,'tilt_gain');     P.tilt_gain = 0.5; end
 if ~isfield(P,'tilt_lambda');   P.tilt_lambda = 1e-6; end
 
-if any(~isfinite(J(:))) || rank(J) < 2
+if any(~isfinite(J(:)))
     dth_cmd = [0;0];
     return;
 end
 
 A = (J.'*J + P.tilt_lambda*eye(2));
+if rcond(A) < 1e-10
+    dth_cmd = [0;0];
+    return;
+end
 b = (J.'*e);
 dth = -(A \ b);
 dth = P.tilt_gain * dth;
